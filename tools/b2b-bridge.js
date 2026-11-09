@@ -282,7 +282,26 @@ renderManagePage = function () {
     const body = $(id); if (!body) return;
     Array.from(body.children).forEach(tr => { const t = tr.innerText.toLowerCase(); tr.style.display = (!q || t.includes(q)) && (!who || t.includes(who.toLowerCase())) ? "" : "none"; });
   });
+  b2bLabelManageTables();
 };
+/* 휴대폰에서 표를 카드로 쌓을 때 쓸 칸 이름을 각 칸에 붙인다(넓은 화면에서는 보이지 않음). 제목 칸은 카드 맨 위, 버튼 칸은 맨 아래 */
+function b2bLabelManageTables() {
+  document.querySelectorAll("#page-manage table.table").forEach(tb => {
+    const heads = Array.from(tb.querySelectorAll("thead th")).map(th => th.textContent.trim());
+    tb.querySelectorAll("tbody tr").forEach(tr => Array.from(tr.children).forEach((td, i) => {
+      if (td.hasAttribute("colspan")) return;
+      const h = heads[i] || "";
+      if (h) td.dataset.label = h; else delete td.dataset.label;
+      td.classList.toggle("mc-title", /제목|이름/.test(h));
+      td.classList.toggle("mc-act", !h);
+    }));
+  });
+}
+// 다른 경로(루틴 켜기·삭제 등)로 줄만 다시 그려져도 칸 이름이 붙도록 표 내용 변화를 지켜본다(칸 이름은 속성만 바꿔 다시 불리지 않음)
+(function () {
+  const page = $("page-manage"); if (!page || !window.MutationObserver) return;
+  let t = 0; new MutationObserver(() => { clearTimeout(t); t = setTimeout(b2bLabelManageTables, 0); }).observe(page, { childList: true, subtree: true });
+})();
 function b2bFilterTasks() { renderManagePage(); }
 
 /* ---------- 진행중 프로젝트 PDF (2026-11-09 사용자 요청) ----------

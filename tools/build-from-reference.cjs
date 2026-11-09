@@ -125,6 +125,20 @@ once('</style>\n</head>', `
   .member-kpi-line { flex: 0 0 auto; align-self: start; width: 100%; }
   .kpi-goalcard-body > .kpi-ind-group, .kpi-goalcard-body > .kpi-connector, .kpi-goalcard-body > .b2b-chips { grid-column: 1 / -1; }
   #page-settings .panel, #page-manage .panel, #page-settings .form-card { overflow-x: auto; }
+  /* 전체 업무 관리 표(루틴·프로젝트·멤버) — 휴대폰에서는 한 줄을 카드 하나로 쌓고, 칸 이름(data-label)을 작은 글씨로 붙인다 */
+  @media (max-width: 640px) {
+    #page-manage .panel { overflow: visible; background: transparent; border: 0; box-shadow: none; }
+    #page-manage table.table, #page-manage table.table tbody { display: block; width: 100%; }
+    #page-manage table.table thead { display: none; }
+    #page-manage table.table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 12px 14px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+    #page-manage table.table td { display: block; min-width: 0; padding: 0; border: 0; background: none !important; text-align: left; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; font-size: 13.5px; }
+    #page-manage table.table td::before { content: attr(data-label); display: block; margin-bottom: 2px; font-size: 11px; font-weight: 700; color: var(--muted); }
+    #page-manage table.table td.mc-title, #page-manage table.table td.mc-act, #page-manage table.table td[colspan] { grid-column: 1 / -1; }
+    #page-manage table.table td.mc-title { order: -1; font-size: 15px; font-weight: 700; }
+    #page-manage table.table td.mc-title::before, #page-manage table.table td.mc-act::before, #page-manage table.table td[colspan]::before, #page-manage table.table td:not([data-label])::before { display: none; }
+    #page-manage table.table td.mc-act { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; padding-top: 6px; border-top: 1px solid var(--line-2); }
+    #page-manage table.table td.mc-act button, #page-manage table.table td.mc-act .btn { min-height: 40px; }
+  }
   #page-settings .form-card > div { min-width: 0; }
   @media (max-width: 640px) { #page-settings .form-card > div { grid-template-columns: 1fr !important; } }
   @media (max-width: 640px) { .b2b-search input, #kpi-month, .kmv, .b2b-kv input { font-size: 16px; } }

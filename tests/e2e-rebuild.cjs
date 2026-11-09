@@ -503,6 +503,16 @@ const setInd = async (p, id, tgt, cur) => {
           assert.ok(over <= 0, id + ' 넘침 ' + over);
           await m.screenshot({ path: path.join(outDir, `모바일${w}_${id}.png`) });
         }
+        await m.tap('.tab[data-page="manage"]'); await m.waitForTimeout(150);
+        const cards = await m.evaluate(() => {
+          const rows = [...document.querySelectorAll('#page-manage table.table tbody tr')].filter(tr => tr.offsetParent && !tr.querySelector('td[colspan]'));
+          const thin = [];
+          rows.forEach(tr => [...tr.children].forEach(td => { const r = td.getBoundingClientRect(); if (td.textContent.trim() && r.width < 120) thin.push(td.dataset.label + ':' + Math.round(r.width)); }));
+          return { rows: rows.length, grid: rows.every(tr => getComputedStyle(tr).display === 'grid'), labeled: rows.every(tr => [...tr.children].some(td => td.dataset.label)), head: [...document.querySelectorAll('#page-manage table.table thead')].some(h => h.offsetParent), thin, title: rows[0] && (rows[0].querySelector('.mc-title') || {}).textContent };
+        });
+        assert.ok(cards.rows > 0 && cards.grid && cards.labeled && !cards.head, JSON.stringify(cards));
+        assert.deepStrictEqual(cards.thin, [], '좁은 칸(글자 꺾임) ' + cards.thin.join(','));
+        await m.screenshot({ path: path.join(outDir, `모바일${w}_업무관리카드.png`), fullPage: true });
         await m.tap('.tab[data-page="kpi"]'); await m.tap('#kpi-root .member-chip:has-text("신한솔")');
         await m.screenshot({ path: path.join(outDir, `모바일${w}_kpi_신한솔.png`), fullPage: true });
         const o2 = await m.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

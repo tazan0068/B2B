@@ -154,6 +154,48 @@ const setInd = async (p, id, tgt, cur) => {
       assert.equal(await p.locator('#manage-routine-tbody tr:visible').count(), 1);
       await p.selectOption('#b2b-task-who', '');
     });
+    await t('진행중 프로젝트 PDF: 진행중(1~99%)만 담당자별로 새 창 보고서, 담당자 선택 따름, 데이터 그대로', async () => {
+      await patchDb({ 'projects/PDFTEST1': { id: 'PDFTEST1', name: 'PDF 시험 프로젝트', owner: 'shs', note: '시험 메모', dueDate: '2026-12-31', tasks: [{ id: 'PDFTEST1_s1', t: '세부 하나', p: 100 }, { id: 'PDFTEST1_s2', t: '세부 둘', p: 20 }] } });
+      await p.reload(); await ready(p); await tab(p, 'manage');
+      const before = await db();
+      const want = await p.evaluate(() => DATA.tasks.filter(t => t.status === 'doing' && (t.taskType || 'project') === 'project').map(t => t.title));
+      const notWant = await p.evaluate(() => DATA.tasks.filter(t => t.status !== 'doing').map(t => t.title).filter(Boolean));
+      assert.ok(want.length >= 1, '시험 데이터에 진행중 프로젝트가 있어야 함');
+      const [pop] = await Promise.all([p.waitForEvent('popup'), p.click('#b2b-pdf-btn')]);
+      await pop.waitForLoadState();
+      const txt = await pop.locator('body').innerText();
+      assert.ok(/B2B운영팀 진행중 프로젝트/.test(txt) && new RegExp(want.length + '건').test(txt) && /전체 담당자/.test(txt), txt.slice(0, 200));
+      want.forEach(w => assert.ok(txt.includes(w), w + ' 없음'));
+      const h3 = await pop.locator('h3').allInnerTexts(); notWant.filter(n => !want.includes(n)).forEach(n => assert.ok(!h3.includes(n), n + ' 은 진행중 아님'));
+      assert.deepStrictEqual(await pop.locator('h3').allInnerTexts(), await p.evaluate(() => b2bDoingProjects('').map(t => t.title)));
+      assert.equal(await pop.locator('.proj').count(), want.length);
+      assert.ok(/^B2B운영팀_진행중프로젝트_\d{4}-\d{2}-\d{2}$/.test(await pop.title()), '파일 이름이 될 제목');
+      assert.ok(await pop.locator('.tool button:has-text("PDF로 저장")').count());
+      await pop.close();
+      const owner = await p.evaluate(() => { const t = b2bDoingProjects('')[0]; return t.owner; });
+      await p.selectOption('#b2b-task-who', owner);
+      const [pop2] = await Promise.all([p.waitForEvent('popup'), p.click('#b2b-pdf-btn')]);
+      await pop2.waitForLoadState();
+      assert.ok(new RegExp('담당 ' + owner).test(await pop2.locator('header').innerText()));
+      assert.equal(await pop2.locator('.proj').count(), await p.evaluate(o => b2bDoingProjects(o).length, owner));
+      await pop2.close();
+      await p.selectOption('#b2b-task-who', '');
+      await new Promise(r => setTimeout(r, 300));
+      assert.equal(JSON.stringify(await db()), JSON.stringify(before), '데이터는 읽기만');
+    });
+    await t('진행중 프로젝트 PDF: 진행중이 없으면 창을 열지 않고 안내', async () => {
+      const r = await p.evaluate(() => { const keep = DATA.tasks; DATA.tasks = keep.filter(t => t.status !== 'doing'); let opened = 0; const o = window.open; window.open = () => { opened++; return null; }; b2bProjectPdf(); window.open = o; DATA.tasks = keep; return { opened, toast: document.getElementById('toast').innerText }; });
+      assert.equal(r.opened, 0); assert.ok(/진행중인 프로젝트가 없습니다/.test(r.toast));
+    });
+    await t('진행중 프로젝트 PDF 보고서: 휴대폰 폭에서 가로 넘침 없음 · 글자는 escape', async () => {
+      const m = await newPage(browser, { viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true });
+      await m.setContent(await p.evaluate(() => b2bProjectReportHtml([{ title: '<b>긴 프로젝트 이름이 아주 길게 이어지는 경우의 줄바꿈 확인용 이름</b>', owner: '신한솔', progress: 40, startDate: '2026-10-01', dueDate: '2026-11-01', lastUpdatedAt: '2026-11-05', priority: 'high', note: '메모'.repeat(40), subtasks: [{ title: '세부 하나', progress: 100, status: 'done' }, { title: '세부 둘'.repeat(10), progress: 20, status: 'doing' }] }], '', new Date(2026, 10, 9, 10, 0))));
+      assert.equal(await m.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
+      const tx = await m.locator('body').innerText();
+      assert.ok(tx.includes('<b>긴 프로젝트') && /8일 지남/.test(tx) && /세부업무 1 \/ 2 완료/.test(tx) && /우선순위 높음/.test(tx), tx.slice(0, 300));
+      await m.screenshot({ path: path.join(outDir, '프로젝트PDF_모바일360.png'), fullPage: true });
+      await m.context().close();
+    });
     /* KPI */
     const pick = async name => { await p.click(`#kpi-root .member-chip:has-text("${name}")`); await p.waitForTimeout(80); };
     await t('KPI 체계: 팀 공통 KPI 카드 3개가 맨 위, 아래 팀 평균 진척률, 팀원 3명 선택, 선택한 사람 지표만', async () => {

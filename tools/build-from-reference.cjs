@@ -88,6 +88,8 @@ cut('<!-- 데이터 -->', '</main>', `</div>
 /* 팀 관리 블록은 숨기고 요소만 남긴다(참고 코드가 값을 채움) */
 once('<!-- 팀 관리 -->', '<div style="display:none;"><!-- 팀 관리 -->');
 once('<div class="section-title">🔄 루틴 업무 <span class="count" id="manage-routine-count">', '</div><div class="section-title">🔄 루틴 업무 <span class="count" id="manage-routine-count">');
+/* 진행중 프로젝트 PDF — 프로젝트 줄의 버튼 옆(위 담당자 선택을 따른다) */
+once('<span class="action-icon">＋</span><span>루틴성 업무 추가 (간단)</span>\n      </button>', '<span class="action-icon">＋</span><span>루틴성 업무 추가 (간단)</span>\n      </button>\n      <button class="action-btn ghost" id="b2b-pdf-btn" onclick="b2bProjectPdf()" title="진행중인 프로젝트를 PDF로 저장합니다">\n        <span class="action-icon">📄</span><span>진행중 프로젝트 PDF</span>\n      </button>');
 /* 검색·필터 */
 once('<div class="page" id="page-manage">\n', `<div class="page" id="page-manage">
     <div class="b2b-search"><input type="text" id="b2b-task-q" placeholder="업무·담당자 검색" oninput="b2bFilterTasks()"><select id="b2b-task-who" onchange="b2bFilterTasks()"></select></div>

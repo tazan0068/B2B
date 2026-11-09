@@ -285,6 +285,88 @@ renderManagePage = function () {
 };
 function b2bFilterTasks() { renderManagePage(); }
 
+/* ---------- 진행중 프로젝트 PDF (2026-11-09 사용자 요청) ----------
+   진행중(오늘 화면 "진행중 프로젝트"와 같은 기준: 진척률 1~99%, 보류 제외) 프로젝트를 담당자별 보고서로 새 창에 그리고 인쇄 창을 띄운다.
+   인쇄 창에서 "PDF로 저장"을 고르면 글자 그대로의 PDF 가 된다(외부 라이브러리·서버 없음, 데이터는 읽기만).
+   전체 업무 관리의 담당자 선택이 있으면 그 사람 것만 담는다. */
+function b2bDoingProjects(whoName) {
+  const name = id => { const m = DATA.members.find(x => x.id === id); return m ? m.name : "담당 없음"; };
+  return DATA.tasks.filter(t => t.status === "doing" && (t.taskType || "project") === "project" && (!whoName || name(t.memberId) === whoName))
+    .map(t => Object.assign({ owner: name(t.memberId) }, t))
+    .sort((a, b) => a.owner.localeCompare(b.owner, "ko") || (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || b.progress - a.progress);
+}
+function b2bProjectReportHtml(list, whoName, now) {
+  const e = escapeHtml, pad = n => (n < 10 ? "0" : "") + n, d = now || new Date();
+  const ymd = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()), stamp = ymd + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  const dayDiff = s => Math.round((new Date(s + "T00:00:00") - new Date(ymd + "T00:00:00")) / 86400000);
+  const due = s => { if (!s) return "없음"; const n = dayDiff(s); return s + (n < 0 ? ` (${-n}일 지남)` : n === 0 ? " (오늘)" : ` (D-${n})`); };
+  const ST = { done: "완료", doing: "진행", todo: "대기", hold: "보류" }, PR = { high: "높음", mid: "보통", low: "낮음" };
+  const avg = Math.round(list.reduce((a, t) => a + (t.progress || 0), 0) / list.length);
+  const groups = {}; list.forEach(t => { (groups[t.owner] = groups[t.owner] || []).push(t); });
+  const card = t => {
+    const subs = t.subtasks || [], done = subs.filter(x => x.status === "done").length, late = t.dueDate && dayDiff(t.dueDate) < 0;
+    return `<section class="proj">
+      <div class="ph"><h3>${e(t.title)}</h3><b class="pct">${t.progress || 0}%</b></div>
+      <div class="bar"><i style="width:${Math.max(0, Math.min(100, t.progress || 0))}%"></i></div>
+      <div class="meta"><span>시작 ${e(t.startDate || "—")}</span><span class="${late ? "late" : ""}">마감 ${e(due(t.dueDate))}</span><span>최근 수정 ${e(t.lastUpdatedAt || "—")}</span><span>우선순위 ${e(PR[t.priority] || "보통")}</span></div>
+      ${subs.length ? `<div class="subs"><div class="sh">세부업무 ${done} / ${subs.length} 완료</div>${subs.map((x, i) => `<div class="sub ${x.status}"><span class="no">${i + 1}</span><span class="st">${e(ST[x.status] || "대기")}</span><span class="tt">${e(x.title)}</span><span class="sp">${x.progress || 0}%</span></div>`).join("")}</div>` : '<div class="subs none">세부업무 없음</div>'}
+      ${t.note ? `<div class="note"><b>메모</b> ${e(t.note)}</div>` : ""}
+    </section>`;
+  };
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B2B운영팀_진행중프로젝트_${ymd}${whoName ? "_" + e(whoName) : ""}</title>
+<style>
+  @page { size: A4; margin: 14mm 12mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; padding: 16px; background: #fff; color: #14213A; font-family: Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; font-size: 13px; line-height: 1.5; }
+  .wrap { max-width: 820px; margin: 0 auto; }
+  .tool { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 12px; margin-bottom: 16px; border: 1px solid #D6DFEC; border-radius: 12px; background: #F3F6FB; }
+  .tool button { min-height: 44px; padding: 0 18px; border: 0; border-radius: 10px; background: #1B4480; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .tool span { font-size: 12.5px; color: #64748B; flex: 1 1 200px; }
+  header { border-bottom: 3px solid #1B4480; padding-bottom: 10px; margin-bottom: 14px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sum { font-size: 12.5px; color: #475569; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  h2 { font-size: 15px; margin: 18px 0 8px; padding: 6px 10px; background: #EEF3FA; border-left: 4px solid #1B4480; border-radius: 4px; }
+  .proj { border: 1px solid #D6DFEC; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; break-inside: avoid; page-break-inside: avoid; }
+  .ph { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  h3 { font-size: 15px; margin: 0; word-break: keep-all; overflow-wrap: anywhere; }
+  .pct { font-size: 20px; color: #1B4480; white-space: nowrap; }
+  .bar { height: 7px; background: #E5EBF3; border-radius: 99px; margin: 6px 0 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: #1B4480; border-radius: 99px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; color: #475569; }
+  .meta .late { color: #B4651E; font-weight: 700; }
+  .subs { margin-top: 8px; border-top: 1px dashed #D6DFEC; padding-top: 6px; }
+  .subs.none { color: #94A3B8; font-size: 12px; }
+  .sh { font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 2px; }
+  .sub { display: grid; grid-template-columns: 22px 38px 1fr auto; gap: 6px; align-items: baseline; padding: 3px 0; font-size: 12.5px; border-bottom: 1px solid #F1F4F9; }
+  .sub .no { color: #94A3B8; text-align: right; }
+  .sub .st { font-size: 11px; font-weight: 700; color: #64748B; }
+  .sub.done .st { color: #2E7D52; } .sub.doing .st { color: #1B4480; }
+  .sub.done .tt { color: #64748B; }
+  .sub .tt { overflow-wrap: anywhere; } .sub .sp { font-weight: 700; white-space: nowrap; }
+  .note { margin-top: 8px; font-size: 12px; color: #334155; background: #F8FAFC; border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  footer { margin-top: 16px; font-size: 11px; color: #94A3B8; text-align: right; }
+  @media print { body { padding: 0; } .tool { display: none; } }
+</style></head><body><div class="wrap">
+<div class="tool"><button type="button" onclick="window.print()">PDF로 저장</button><span>인쇄 창의 '대상(프린터)'에서 <b>PDF로 저장</b>을 고르면 PDF 파일이 됩니다.</span></div>
+<header><h1>B2B운영팀 진행중 프로젝트</h1><div class="sum"><span>출력 ${stamp}</span><span>${whoName ? "담당 " + e(whoName) : "전체 담당자"}</span><span>${list.length}건</span><span>평균 진척률 ${avg}%</span></div></header>
+${Object.keys(groups).map(g => `<h2>${e(g)} · ${groups[g].length}건</h2>${groups[g].map(card).join("")}`).join("")}
+<footer>진행중 = 진척률 1~99% 프로젝트(완료·보류·시작 전 제외) · B2B 업무트래커 tazan0068.github.io/B2B</footer>
+</div><script>window.addEventListener("load", function () { setTimeout(function () { window.print(); }, 400); });<\/script></body></html>`;
+}
+function b2bProjectPdf() {
+  const whoName = ($("b2b-task-who") || {}).value || "", list = b2bDoingProjects(whoName);
+  if (!list.length) { toast(whoName ? whoName + "님의 진행중 프로젝트가 없습니다" : "진행중인 프로젝트가 없습니다"); return; }
+  const html = b2bProjectReportHtml(list, whoName), w = window.open("", "_blank");
+  if (w) { w.document.open(); w.document.write(html); w.document.close(); return; }
+  // 팝업이 막히면 이 화면 안의 보이지 않는 틀에서 바로 인쇄 창을 띄운다
+  const f = document.createElement("iframe");
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(f);
+  f.contentDocument.open(); f.contentDocument.write(html); f.contentDocument.close();
+  setTimeout(() => f.remove(), 120000);
+}
+
 /* ---------- 지표 값 저장 ---------- */
 function b2bMonth() { if (!UI.kpiMonth) { const d = new Date(), m = d.getMonth() + 1; UI.kpiMonth = d.getFullYear() + "-" + (m < 10 ? "0" : "") + m; } return UI.kpiMonth; }
 function b2bRec(ref, month) { return B2B.shape.perfMonthly[ref + "_" + month] || null; }

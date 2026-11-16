@@ -615,6 +615,14 @@ function b2bDrawInd() {
       (isLead ? `<div class="b2b-kv"><span>업무 진행률</span><b>${tasks.length ? Math.round(w.value) + "% · 완료 " + w.done + " / " + w.total : "세부업무 없음"} (달성률과 별개)</b></div>
       <div class="subtask-container" style="margin-top:8px;"><div class="subtask-head"><span>📎 세부업무</span><span style="font-family:var(--num); font-weight:800;">${w.done}/${w.total}</span></div><div class="subtask-list">${subs}</div><div class="subtask-add"><input type="text" id="b2b-sub-add" placeholder="세부업무 추가" onkeydown="if(event.key==='Enter')b2bSubAdd('${ref}')"><button onclick="b2bSubAdd('${ref}')">+ 추가</button></div></div>` : "");
   const restore = b2bKeepFocus(el);
+  if (!s.mainKpis[ref]) {
+    // 세부업무 체크 등으로 다시 그려도 펼쳐 둔 칸은 펼친 채로 둔다(같은 지표일 때만)
+    const opened = el.dataset.ref === ref ? [...el.querySelectorAll("details.kd-fold[open]")].map(d => d.dataset.fold) : [];
+    el.innerHTML = b2bSimpleInd(def, { month, rec, auto, autoBox, isLead, tasks, w, subs, kl, lagKpi, projs, hist, kv, sec }); el.dataset.ref = ref;
+    opened.forEach(k => { const d = el.querySelector(`details.kd-fold[data-fold="${k}"]`); if (d) d.open = true; });
+    restore(); return;
+  }
+  el.dataset.ref = "";
   el.innerHTML = sec("목표 · 현재 실적", b2bIndRow(def) + autoBox) +
     sec("계산식", `<div class="b2b-kv"><span>목표</span><b>${escapeHtml(def.denLabel || "대상 수")}</b></div><div class="b2b-kv"><span>현재 실적</span><b>${escapeHtml(def.numLabel || "완료 수")}</b></div><div class="b2b-kv"><span>달성률</span><b>${escapeHtml(def.formula || "현재 실적 ÷ 목표 × 100")}</b></div>${kv("집계 범위", def.scope)}`) +
     sec("설명", `${kv("관리 목적", def.purpose)}${kv("측정 항목", def.measure)}${kv("목표 설명", def.targetText)}${kv("참고", def.outcome || def.defNote)}${kv("데이터", (def.src || "") + (def.linkNote ? " · " + def.linkNote : ""))}
@@ -624,8 +632,37 @@ function b2bDrawInd() {
     `<details style="margin-top:8px;"><summary class="b2b-sum">변경 이력</summary>${hist || '<div class="empty-small">변경 이력이 없습니다.</div>'}</details>`;
   restore();
 }
+/* 개인 지표 상세 — 쉬운 보기(2026-11-16 사용자 「보기가 너무 어려워」).
+   처음엔 ① 이번 달(달성률·「대상 몇 중 몇」·어디서 온 값) ② 월별 기록(한 달 한 줄: 월·실적·달성률)만 보인다.
+   계산 방법·설명·기준 달성률·자동 계산 내역, 세부업무, 변경 이력은 접어 둔다(눌러서 펼침). 저장·계산은 그대로.
+   월별 기록: 같은 달에 자동값이 있으면 자동값 한 줄만, 세부업무 진행만 있고 목표·실적이 모두 빈 줄은 빼고, 입력 출처는 「카드 자동」/「직접 입력」으로만 쓴다. */
+function b2bSimpleInd(def, o) {
+  const s = B2B.shape, ref = def.id, kv = o.kv, sec = o.sec, auto = o.auto, rec = o.rec;
+  const view = auto || rec, has = view && view.mode !== "direct" && PC.isNum(view.num) && PC.isNum(view.den);
+  const short = t => String(t || "").replace(/\s*\([^)]*\)/g, "");   // 괄호 안 보충 설명은 접힌 「계산 방법」에만
+  const plain = has ? `<div class="kd-plain">${escapeHtml(short(def.denLabel) || "대상")} <b>${view.den}</b> 중 ${escapeHtml(short(def.numLabel) || "완료")} <b>${view.num}</b></div>` : "";
+  const from = auto ? `${escapeHtml(b2bAutoLabel(auto))} · ${escapeHtml(b2bAutoTime(auto))} 계산 · 직접 고칠 수 없어요` : has ? "직접 입력한 값" : view && view.mode === "direct" ? "달성률 직접 입력" : "아직 이번 달 값이 없어요";
+  const byMonth = {};
+  Object.values(s.perfAuto || {}).filter(x => x.ref === ref).forEach(x => { byMonth[x.month] = Object.assign({ _auto: true }, x); });
+  Object.values(s.perfMonthly).filter(x => x.ref === ref && !byMonth[x.month]).forEach(x => { if (PC.isNum(x.num) || PC.isNum(x.den) || x.mode === "direct") byMonth[x.month] = x; });
+  const who = x => String(x.updatedBy || "").indexOf("�") >= 0 ? "" : String(x.updatedBy || "");
+  const rows = Object.keys(byMonth).sort().reverse().map(m => { const x = byMonth[m], y = PC.rate(x), cls = y.state !== "ok" ? "" : y.value >= 100 ? " ok" : "";
+    return `<tr><td>${m}</td><td class="kd-n">${PC.isNum(x.num) && PC.isNum(x.den) ? x.num + " / " + x.den : "—"}</td><td class="kd-n${cls}">${y.state === "ok" ? b2bPct(y.value) + "%" : y.state === "empty" ? "대상 없음" : "미측정"}</td><td class="kd-src" title="${escapeHtml(x._auto ? (x.rule || "") : who(x))}">${x._auto ? escapeHtml(b2bAutoLabel(x)) : "직접 입력"}</td></tr>`; }).join("");
+  const dataLine = auto ? "고객관리카드 기록으로 매일 아침 자동 계산" : (def.src || "") + (def.linkNote ? " · " + def.linkNote : "");
+  const fold = (key, title, body, cls) => `<details class="kd-fold${cls ? " " + cls : ""}" data-fold="${key}"><summary>${title}</summary><div class="kd-fold-b">${body}</div></details>`;
+  const how = kv("달성률", def.formula || "현재 실적 ÷ 목표 × 100") + kv("목표(대상)", def.denLabel || "대상 수") + kv("현재 실적", def.numLabel || "완료 수") + kv("집계 범위", def.scope) +
+    kv("관리 목적", def.purpose) + kv("측정 항목", def.measure) + kv("목표 설명", def.targetText) + kv("참고", def.outcome || def.defNote) + kv("데이터", dataLine) + o.autoBox +
+    `<div class="b2b-kv"><span>기준 달성률(%)</span><input type="number" min="0" max="100" id="b2b-target" value="${PC.isNum(def.target) ? def.target : ""}" placeholder="미설정" onchange="b2bSetTarget('${ref}',this)" style="width:100px;"></div>`;
+  const tasksBody = kv("연결 팀 KPI", o.kl || o.lagKpi) + kv("연결 프로젝트", o.projs ? o.projs + " (진행률 합산 안 함)" : "") +
+    (o.isLead ? `<div class="subtask-container" style="margin-top:8px;"><div class="subtask-head"><span>📎 세부업무</span><span style="font-family:var(--num); font-weight:800;">${o.w.done}/${o.w.total}</span></div><div class="subtask-list">${o.subs}</div><div class="subtask-add"><input type="text" id="b2b-sub-add" placeholder="세부업무 추가" onkeydown="if(event.key==='Enter')b2bSubAdd('${ref}')"><button onclick="b2bSubAdd('${ref}')">+ 추가</button></div></div>` : "");
+  return sec("이번 달", b2bIndRow(def) + plain + `<div class="kd-from">${from}</div>`) +
+    sec("월별 기록", rows ? `<table class="kd-months"><thead><tr><th>월</th><th>실적</th><th>달성률</th><th>입력</th></tr></thead><tbody>${rows}</tbody></table>` : '<div class="empty-small">아직 저장된 실적이 없습니다.</div>') +
+    fold("how", "계산 방법 · 설명", how) +
+    (o.isLead ? fold("tasks", `세부업무 <span>${o.tasks.length ? o.w.done + " / " + o.w.total + " 완료 · 달성률과 별개" : "없음"}</span>`, tasksBody, "kd-tasks") : (tasksBody ? fold("links", "연결된 팀 KPI", tasksBody) : "")) +
+    fold("hist", "변경 이력", o.hist || '<div class="empty-small">변경 이력이 없습니다.</div>');
+}
 const _closeModal = closeModal;
-closeModal = function () { UI.b2bInd = null; UI.b2bAch = null; _closeModal(); const b = $("modal-kpi-body"); if (b) b.innerHTML = ""; }; // 닫힌 창에 지표 입력칸이 남아 겹치지 않게 비운다
+closeModal = function () { UI.b2bInd = null; UI.b2bAch = null; _closeModal(); const b = $("modal-kpi-body"); if (b) { b.innerHTML = ""; b.dataset.ref = ""; } }; // 닫힌 창에 지표 입력칸이 남아 겹치지 않게 비운다
 
 /* 성과 카드 상세 — 추진 활동 · 기준일 전후 지표 · 활동과 성과의 연결 · 한계 · 미집계 · 근거 */
 function b2bOpenAch(id) { closeModal(); UI.b2bAch = id; $("modal-kpi").classList.add("open"); UI.modalOpen = "kpi"; b2bDrawAch(); }

@@ -237,6 +237,23 @@ once('</style>\n</head>', `
   .kd-sec:first-child { margin-top: 0; }
   .kd-h { font-size: 14px; font-weight: 800; color: var(--ink); padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
   .kd-table { overflow-x: auto; }
+  /* 개인 지표 쉬운 상세: 이번 달 · 월별 기록만 펼쳐 두고 나머지는 접음 */
+  .kd-plain { margin-top: 10px; font-size: 15px; font-weight: 600; color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
+  .kd-plain b { font-family: var(--num); font-size: 18px; color: var(--ink); margin: 0 2px; }
+  .kd-from { margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+  .kpi-ind .ks-inputs:has(.is-auto) { display: none; }
+  .kpi-ind:has(.is-auto) .ks-auto { display: none; }
+  .kd-months { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .kd-months th { text-align: left; font-size: 12px; font-weight: 700; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .kd-months td { padding: 10px 8px; border-bottom: 1px solid var(--line-2); white-space: nowrap; }
+  .kd-months .kd-n { font-family: var(--num); font-weight: 700; }
+  .kd-months .kd-n.ok { color: var(--success); }
+  .kd-months .kd-src { font-size: 12px; color: var(--muted); }
+  .kd-fold { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; }
+  .kd-fold > summary { cursor: pointer; padding: 12px 14px; font-size: 14px; font-weight: 800; color: var(--ink-2); }
+  .kd-fold > summary span { font-weight: 600; font-size: 12.5px; color: var(--muted); margin-left: 4px; }
+  .kd-fold-b { padding: 0 14px 12px; }
+  @media (max-width: 480px) { .kd-months { font-size: 13px; } .kd-months td, .kd-months th { padding-left: 4px; padding-right: 4px; } }
   /* 성과 카드: 기준일 이후 상승한 팀 지표의 증감(%p)을 크게. 상세에 추진 활동·전후 지표·연결·한계·미집계 */
   .kc.ach { border-top: 4px solid var(--success); }
   .kc.ach .kc-pct { color: var(--success); }

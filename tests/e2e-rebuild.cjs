@@ -280,18 +280,24 @@ const setInd = async (p, id, tgt, cur) => {
       assert.ok(/후행지표 평균 진척률\s*—/.test(await p.locator('#kpi-member-view .ks-sec.lag .kc-avg').innerText()));
       assert.equal(JSON.stringify(await db()), d0);
     });
-    await t('상세보기 순서: 목표·현재 실적 → 계산식 → 설명 → 월별 기록 → 관련 업무, 진행률은 달성률과 분리', async () => {
+    await t('개인 지표 상세는 쉬운 보기: 이번 달 · 월별 기록만 펼치고 계산 방법·세부업무·변경 이력은 접음, 진행률은 달성률과 분리', async () => {
       await openInd(p, 'LI03');
-      assert.deepStrictEqual(await p.locator('#modal-kpi .kd-h').allInnerTexts(), ['목표 · 현재 실적', '계산식', '설명', '월별 기록', '관련 업무']);
+      assert.deepStrictEqual(await p.locator('#modal-kpi .kd-h').allInnerTexts(), ['이번 달', '월별 기록']);
+      assert.deepStrictEqual((await p.locator('#modal-kpi details.kd-fold > summary').allInnerTexts()).map(x => x.split(/\s/)[0]), ['계산', '세부업무', '변경']);
+      assert.equal(await p.locator('#modal-kpi details.kd-fold[open]').count(), 0, '처음엔 접힘');
+      assert.ok(!(await p.locator('#b2b-target').isVisible()), '기준 달성률은 접힌 칸 안');
+      await p.locator('#modal-kpi details[data-fold="how"] > summary').click();
       const b0 = await p.locator('#modal-kpi-body').innerText();
       assert.ok(/후속관리 대상 업체 수/.test(b0), '목표 설명');
-      await p.locator('#modal-kpi summary:has-text("기준 달성률 설정")').click();
-      assert.ok(await p.locator('#b2b-target').isVisible(), '기준 달성률은 상세보기 안');
+      assert.ok(await p.locator('#b2b-target').isVisible(), '펼치면 기준 달성률');
+      await p.locator('#modal-kpi details[data-fold="tasks"] > summary').click();
       await p.locator('#modal-kpi .sub-status-btn').first().click();
       const x = await until(async () => { const v = await db(); const r = v.perfMonthly['LI03_' + MONTH]; return r && r.prog && r.prog.t1 === 50 ? v : false; });
       assert.equal(x.perfMonthly['LI03_' + MONTH].den, undefined);
       assert.ok(/미측정/.test(await p.locator('#modal-kpi .kpi-ind').innerText()));
-      assert.ok(/업무 진행률/.test(await p.locator('#modal-kpi-body').innerText()));
+      assert.ok(await p.locator('#modal-kpi details[data-fold="tasks"]').evaluate(d => d.open), '세부업무 체크 뒤에도 펼친 채');
+      assert.ok(/달성률과 별개/.test(await p.locator('#modal-kpi-body').innerText()));
+      assert.ok(!/업무 진행률/.test(await p.locator('#modal-kpi .kd-months').innerText().catch(() => '')), '월별 기록에 업무 진행률 칸 없음');
       await p.fill('#b2b-sub-add', '시험 세부업무'); await p.click('#modal-kpi .subtask-add button');
       await until(async () => (await db()).leadDefs.LI03.tasks.length === 10);
       await p.evaluate(() => closeModal());
@@ -413,9 +419,14 @@ const setInd = async (p, id, tgt, cur) => {
       assert.ok(await p.locator('#modal-kpi .kpi-ind[data-ind="LI01"] .kmv.tgt').getAttribute('readonly') !== null, '잠금');
       await p.evaluate(() => b2bSetVal('LI01', 'num', { value: '1', dataset: {} }));
       assert.ok(/자동으로 계산되는 지표/.test(await p.locator('#toast').innerText()));
+      const top = await p.locator('#modal-kpi-body').innerText();
+      assert.ok(/중 .*45/.test(top) && /카드 자동 · .* 계산/.test(top), '이번 달: 대상 몇 중 몇 · 어디서 온 값');
+      const months = await p.locator('#modal-kpi .kd-months tbody tr').allInnerTexts();
+      assert.equal(months.filter(r => r.startsWith(MONTH)).length, 1, '같은 달은 자동값 한 줄만');
+      assert.ok(/45 \/ 50\s*90%\s*카드 자동/.test(months[0]), months[0]);
+      await p.locator('#modal-kpi details[data-fold="how"] > summary').click();
       const b = await p.locator('#modal-kpi-body').innerText();
       assert.ok(/고객관리카드 자동 계산/.test(b) && /누락\s*2건/.test(b) && /등록 지연\s*3건/.test(b), b.slice(0, 300));
-      assert.ok(/직접 입력\(이전\)/.test(b), '월별 기록에 직접 입력값');
       await p.evaluate(() => closeModal());
       await new Promise(r => setTimeout(r, 600));
       const d = await db();

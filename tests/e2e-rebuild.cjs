@@ -80,7 +80,11 @@ const setInd = async (p, id, tgt, cur) => {
       const np = Object.values(d.projects).find(x => x.id !== 'SX1');
       assert.equal(np.owner, 'shs'); assert.equal(np.name, '시험 프로젝트'); assert.equal(np.tasks.length, 2); assert.equal(np.tasks[0].p, 100);
       assert.deepStrictEqual(d.projects.SX1, baseline.projects.SX1, 'SX1 그대로');
-      keepOld(d, ['projects']);
+      keepOld(d, ['projects', 'lagDefs']);
+      // 후행지표 정의 문구는 코드 기준(2026-11-16 관리한 업체 기준)으로 맞춰 저장될 수 있다 — 문구 칸 말고는 그대로
+      const TEXT = ['formula', 'denLabel', 'numLabel', 'scope', 'outcome'];
+      const strip = o => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k, Object.fromEntries(Object.entries(v).filter(([f]) => !TEXT.includes(f) && f !== 'ref'))]));
+      assert.deepStrictEqual(strip(d.lagDefs), strip(baseline.lagDefs), '후행지표 정의는 문구만 바뀜');
     });
     await t('세부업무 상태 단추 ○ ▶ ✓ 와 평균 자동 계산', async () => {
       const d0 = await db(), np = Object.values(d0.projects).find(x => x.id !== 'SX1');

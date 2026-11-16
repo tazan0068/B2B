@@ -513,16 +513,17 @@ function b2bKpiTree(k) {
 }
 /* KPI 카드 요약(2026-11-03 사용자 지시) — 처음 화면은 큰 달성률·지표 이름·실적/목표만 보인다.
    목표·실적 입력, 계산식, 설명, 월별 기록, 관련 업무는 카드를 눌러 여는 상세보기에만 둔다. 달성률 계산은 그대로(b2bRate). */
-function b2bCard(def, kind) {
+function b2bCard(def, kind, opt) {
+  opt = opt || {};
   const month = b2bMonth(), r = b2bRate(def.id, month), auto = b2bAuto(def.id, month), rec = auto || b2bRec(def.id, month), ok = r.state === "ok", pct = ok ? b2bPct(r.value) : 0;
   const has = rec && rec.mode !== "direct" && PC.isNum(rec.num) && PC.isNum(rec.den), nums = has ? rec.num + " / " + rec.den : rec && rec.mode === "direct" ? "직접 입력" : "입력 전";
   const off = kind === "team" ? b2bOfficial(def.id) : null;
   const tag = off ? off.kpi + " · 확인분" : kind === "team" ? "팀 KPI " + (def.no || "") : (def.no || "") + (B2B_LEAD_KIND[def.id] ? " · " + (B2B_LEAD_KIND[def.id] === "exec" ? "실행" : "운영 지원") : "");
-  return `<button class="kc ${kind}${!ok ? " none" : pct >= 100 ? " done" : ""}" data-ind="${def.id}" onclick="b2bOpenInd('${def.id}')">
+  return `<button class="kc ${kind}${!ok ? " none" : pct >= 100 ? " done" : ""}${opt.cls ? " " + opt.cls : ""}" data-ind="${def.id}" onclick="b2bOpenInd('${def.id}')">
     <span class="kc-tag">${escapeHtml(tag)}${auto && !off ? `<i class="kc-auto" title="${escapeHtml(b2bAutoLabel(auto) + " · " + b2bAutoTime(auto))}">${b2bAutoLabel(auto)}</i>` : ""}</span>
     <span class="kc-pct">${ok ? pct + "<small>%</small>" : escapeHtml(b2bRateLabel(r))}</span>
-    <span class="kc-desc">${escapeHtml(off ? off.name : def.name)}</span>
-    <span class="kc-foot">${off ? `${escapeHtml(Number(off.num).toLocaleString("ko-KR") + "/" + Number(off.den).toLocaleString("ko-KR") + " " + (off.unit || ""))} · <b>목표 ${off.target}%${off.floor ? " 도전 · " + off.floor + "% 하한" : ""}</b>` : `실적 / 목표 <b${has ? "" : ' class="txt"'}>${nums}</b>`}</span>
+    <span class="kc-desc">${escapeHtml(off ? off.name : def.name)}</span>${opt.extra || ""}
+    <span class="kc-foot">${opt.foot ? opt.foot(has, nums, rec) : off ? `${escapeHtml(Number(off.num).toLocaleString("ko-KR") + "/" + Number(off.den).toLocaleString("ko-KR") + " " + (off.unit || ""))} · <b>목표 ${off.target}%${off.floor ? " 도전 · " + off.floor + "% 하한" : ""}</b>` : `실적 / 목표 <b${has ? "" : ' class="txt"'}>${nums}</b>`}</span>
   </button>`;
 }
 /* 카드 아래 평균 — 측정된 지표만, 100% 넘는 값은 100%로 본다. 화면 표시용이라 저장하지 않고 팀 KPI 실적에도 쓰지 않는다. */
@@ -554,17 +555,91 @@ function b2bAchCard(x) {
     <span class="kc-foot">${top ? escapeHtml(top.o.name) + ` <b>${top.b}% → ${top.a}%</b>` : '<b class="txt">상승이 확인된 지표 없음</b>'}</span>
   </button>`;
 }
+/* 개인 KPI 단계별 흐름(2026-11-16 사용자 지시) — ① 내가 한 업무(선행) → ② 고객의 실제 활동 변화 → ③ 실제 성과(후행) → ④ 지금 확인할 업무.
+   계산식·저장·입력은 그대로(카드를 누르면 기존 상세 창). 선행 '달성률'(내가 처리한 비율)과 후행 '실제 비율'(고객이 움직인 비율)을 다른 말로 구분하고,
+   선행 달성률이 후행 실적을 바꾸지 않는다. 선행 → 후행 연결은 '관련 성과(참고)'일 뿐 인과로 단정하지 않는다.
+   ②·④ 는 저장된 실적(분자·분모·관찰 중 건수)과 지표 설명에서만 만든다 — 없는 관리 대상을 만들지 않는다. */
+const B2B_LEAD_LAG = { LI01: ["LG1"], LI02: ["LG1"], LI03: ["LG1"], LI07: ["LG2", "LG4"], LI06: ["LG5"] };
+const B2B_LAG_MEANING = {
+  LG1: "새로 협약한 업체 가운데 실제로 첫 요청을 보낸 업체의 비율",
+  LG2: "요청했던 업체가 60일 안에 다른 현장도 맡긴 비율",
+  LG3: "기술자문을 받은 건이 30일 안에 컨설팅·PT·샘플까지 이어진 비율",
+  LG4: "오래 요청이 없던 업체가 연락 뒤 다시 요청한 비율",
+  LG5: "관리한 업체의 등급이 오른 비율"
+};
+function b2bNow(id) { return b2bAuto(id, b2bMonth()) || b2bRec(id, b2bMonth()); }
+function b2bLeadWeak(d) {
+  const r = b2bRate(d.id, b2bMonth()); if (r.state !== "ok") return null;
+  const goal = PC.isNum(d.target) ? d.target : 100;
+  return r.value < goal ? (r.value === 0 ? "우선 확인 필요" : "목표 미달") : null;
+}
+function b2bCustomerLines(lags) {
+  const out = [];
+  lags.forEach(g => {
+    const v = b2bNow(g.id); if (!v || !PC.isNum(v.num) || !PC.isNum(v.den)) return;
+    const c = v.counts || {}, open = c.open || 0, obs = open ? ` · ${open}곳은 60일 관찰 중` : "";
+    if (g.id === "LG1") out.push(`새로 협약한 업체 <b>${v.den + open}곳</b> 가운데 <b>${v.num}곳</b>이 첫 요청을 보냈어요${obs}`);
+    else if (g.id === "LG2") out.push(`요청한 업체 <b>${v.den + open}곳</b> 가운데 <b>${v.num}곳</b>이 다른 현장도 맡겼어요${obs}`);
+    else if (g.id === "LG3") out.push(`기술자문 <b>${v.den}건</b> 가운데 30일 안에 컨설팅·PT·샘플로 이어진 건 <b>${v.num}건</b>${c.sameDay ? ` · 같은 날 함께 들어온 ${c.sameDay}건은 따로 셈` : ""}`);
+    else if (g.id === "LG4") out.push(`오래 쉬던 업체 <b>${v.den}곳</b>에 연락했고 <b>${v.num}곳</b>이 다시 요청했어요`);
+  });
+  return out;
+}
+function b2bNextItems(mid, leads, lags, hidden) {
+  const s = B2B.shape, items = [];
+  leads.forEach(d => {
+    const w = b2bLeadWeak(d), v = b2bNow(d.id); if (!w || !v || !PC.isNum(v.den)) return;
+    items.push({ kind: "미완료 업무", cls: w === "우선 확인 필요" ? "hot" : "", text: `${d.name} — 대상 ${v.den}건 중 ${v.num}건 처리`, sub: w, more: d.reported || "" });
+  });
+  lags.forEach(g => {
+    const v = b2bNow(g.id); if (!v || !PC.isNum(v.num)) return; const open = (v.counts || {}).open || 0;
+    if (open && g.id === "LG1") items.push({ kind: "후속 관리 대상", text: `새로 협약한 ${open}곳 — 60일 안에 첫 요청이 있는지 확인`, sub: "관찰 중" });
+    if (open && g.id === "LG2") items.push({ kind: "후속 관리 대상", text: `첫 요청한 ${open}곳 — 다른 현장 요청이 이어지는지 확인`, sub: "관찰 중" });
+    if (g.id === "LG3" && v.den && v.num === 0) items.push({ kind: "확인할 고객·현장", text: `기술자문 ${v.den}건이 아직 컨설팅·PT·샘플로 이어지지 않았어요 — 후속 안내 여부 확인`, sub: "원인 단정 아님" });
+  });
+  Object.values(s.perfMonthly).concat(Object.values(s.perfAuto || {}))
+    .filter(x => x && x.month === b2bMonth() && /대조 전/.test(String(x.updatedBy || "")) && (s.leadDefs[x.ref] || s.lagDefs[x.ref] || {}).member === mid)
+    .forEach(x => items.push({ kind: "데이터 확인", text: `${b2bDef(x.ref).name} — 서버와 아직 대조하지 않은 값이 들어 있어요`, sub: "대조 필요" }));
+  if (lags.length && lags.some(g => !PC.isNum(g.target))) items.push({ kind: "데이터 확인", text: "실제 성과(후행지표) 목표가 아직 정해지지 않았어요", sub: "목표 미설정" });
+  if (hidden) items.push({ kind: "데이터 확인", text: `측정 전 지표 ${hidden}개 — 데이터나 기준이 정해지면 화면에 나타나요`, sub: "숨김" });
+  return items;
+}
 function b2bMemberSection(mid) {
   const s = B2B.shape, byId = (a, b) => a.id < b.id ? -1 : 1, name = escapeHtml(b2bMemberName(mid));
   const allInd = Object.values(s.leadDefs).concat(Object.values(s.lagDefs)).filter(d => d.member === mid), hidden = UI.kpiShowHidden ? 0 : allInd.filter(d => !b2bMeasured(d.id)).length;
   const leads = Object.values(s.leadDefs).filter(l => l.member === mid && b2bMeasured(l.id)).sort((a, b) => (B2B_LEAD_KIND[a.id] !== "exec") - (B2B_LEAD_KIND[b.id] !== "exec") || byId(a, b));
   const lags = Object.values(s.lagDefs).filter(g => g.member === mid && b2bMeasured(g.id)).sort(byId), achs = Object.values(s.achievements).filter(x => x.member === mid).sort(byId);
   if (!allInd.length && !achs.length) return `<div class="ks-empty">아직 ${name}님의 지표가 없어요.</div>`;
-  const group = (cls, title, help, label, list) => list.length ? `<div class="ks-sec ${cls}"><div class="ks-h">${title} <span>${help}</span></div>
-    <div class="kc-grid">${list.map(d => b2bCard(d, cls)).join("")}</div>${b2bAvgLine(label, list)}</div>` : "";
+  const lagName = id => (s.lagDefs[id] || {}).name || "";
+  const leadOpt = d => {
+    const w = b2bLeadWeak(d), r = b2bRate(d.id, b2bMonth()), pct = r.state === "ok" ? Math.min(100, b2bPct(r.value)) : 0;
+    const rel = (B2B_LEAD_LAG[d.id] || []).filter(id => lags.some(g => g.id === id));
+    return { cls: w ? "weak" : "",
+      extra: `<span class="kf-bar"><i style="width:${pct}%"></i></span>${w ? `<span class="kf-warn">${w}</span>` : ""}${rel.length ? `<span class="kf-rel">관련 성과(참고) · ${escapeHtml(rel.map(lagName).join(", "))}</span>` : ""}`,
+      foot: (has, nums) => `처리 / 대상 <b${has ? "" : ' class="txt"'}>${nums}</b>` };
+  };
+  const lagOpt = g => ({ extra: `<span class="kf-mean">${escapeHtml(B2B_LAG_MEANING[g.id] || "")}</span>`,
+    foot: (has, nums) => `고객 / 대상 <b${has ? "" : ' class="txt"'}>${nums}</b>${PC.isNum(g.target) ? " · 목표 " + g.target + "%" : ""}` });
+  const arrow = t => `<div class="kf-arrow"><span>↓</span>${t}</div>`;
+  const step = (n, cls, title, help, body) => `<div class="ks-sec kf-step ${cls}"><div class="kf-h"><span class="kf-no">${n}</span><b>${title}</b><span>${help}</span></div>${body}</div>`;
+  const cust = b2bCustomerLines(lags), next = b2bNextItems(mid, leads, lags, hidden);
+  const nextLi = x => `<li class="${x.cls || ""}"><span class="kf-kind">${x.kind}</span><span class="kf-txt">${escapeHtml(x.text)}${x.sub ? ` <em>${escapeHtml(x.sub)}</em>` : ""}</span>${x.more ? `<details class="kf-fold"><summary>근거 보기</summary><div>${escapeHtml(x.more)}</div></details>` : ""}</li>`;
+  const flow = (leads.length || lags.length) ? `<div class="kf-flow">` +
+    step("①", "lead", name + " · 내가 한 업무", "선행지표 · 달성률 = 내가 맡은 대상 중 처리한 비율",
+      leads.length ? `<div class="kc-grid">${leads.map(d => b2bCard(d, "lead", leadOpt(d))).join("")}</div>${b2bAvgLine("선행지표 평균 진척률", leads)}` : '<div class="ks-empty">측정된 업무가 없어요.</div>') +
+    arrow("이 업무를 한 업체에서 고객이 실제로 움직였는지") +
+    step("②", "cust", "고객의 실제 활동 변화", "관리한 업체에서 일어난 일 · 고객관리카드 기록",
+      cust.length ? `<ul class="kf-list">${cust.map(t => `<li>${t}</li>`).join("")}</ul>` : '<div class="ks-empty">아직 집계된 고객 활동이 없어요.</div>') +
+    arrow("움직인 비율이 실제 성과가 됩니다") +
+    step("③", "lag", "실제 성과", "후행지표 · " + name + "님이 관리한 업체의 고객이 실제로 움직인 비율 · 내 업무 달성률과 다름 · 개인 평가 점수 아님",
+      lags.length ? `<div class="kc-grid">${lags.map(g => b2bCard(g, "lag", lagOpt(g))).join("")}</div>
+      <details class="kf-fold"><summary>달성률과 실제 비율은 어떻게 달라요?</summary><div>① 의 <b>달성률</b>은 내가 맡은 대상 가운데 처리한 비율(업무)이고, ③ 의 <b>실제 비율</b>은 고객이 실제로 움직인 비율(성과)이에요. 목표가 정해지면 ③ 은 목표와 따로 비교합니다. ① 달성률이 ③ 실적을 바꾸지 않고, ①→③ 연결은 참고일 뿐 원인으로 단정하지 않아요.</div></details>` : '<div class="ks-empty">측정된 성과가 없어요.</div>') +
+    arrow("부족한 업무와 관찰 중인 고객이 다음 할 일이에요") +
+    step("④", "next", "지금 확인할 업무", "저장된 실적과 기록에서만 뽑았어요",
+      next.length ? `<ul class="kf-next">${next.map(nextLi).join("")}</ul>` : '<div class="ks-empty">지금 따로 확인할 일이 없어요.</div>') +
+    `</div>` : "";
   return (achs.length ? `<div class="ks-sec ach"><div class="ks-h">${name} 성과 <span>추진 활동 이후 관찰된 팀 변화 · 개인 단독 효과로 보지 않음</span></div><div class="kc-grid">${achs.map(b2bAchCard).join("")}</div></div>` : "") +
-    group("lead", name + " 선행지표", "직접 하는 일 · 실행과 운영 지원", "선행지표 평균 진척률", leads) +
-    group("lag", name + " 후행지표", "관리한 업체에서 생긴 변화 · 개인 평가 점수 아님", "후행지표 평균 진척률", lags) +
+    flow +
     (UI.kpiShowHidden ? `<div class="ks-hidden-note"><button class="ks-hidden-btn" onclick="b2bToggleHidden()">측정 전 지표 다시 숨기기</button></div>` : hidden ? `<div class="ks-hidden-note">아직 측정 전인 지표 ${hidden}개는 숨겨 두었어요 · 실적이 들어오면 다시 보여요 <button class="ks-hidden-btn" onclick="b2bToggleHidden()">보기</button></div>` : "");
 }
 renderKpiPage = function () {

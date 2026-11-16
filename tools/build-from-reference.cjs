@@ -238,6 +238,36 @@ once('</style>\n</head>', `
   .kd-h { font-size: 14px; font-weight: 800; color: var(--ink); padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
   .kd-table { overflow-x: auto; }
   /* 개인 지표 쉬운 상세: 이번 달 · 월별 기록만 펼쳐 두고 나머지는 접음 */
+  /* 개인 KPI 단계별 흐름 ①→②→③→④ */
+  .kf-flow { display: flex; flex-direction: column; margin-top: 6px; }
+  .kf-step { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--card, #fff); }
+  .kf-step.lead { border-left: 4px solid var(--accent); }
+  .kf-step.cust { border-left: 4px solid #6b8fb3; }
+  .kf-step.lag { border-left: 4px solid var(--success); }
+  .kf-step.next { border-left: 4px solid #d9822b; }
+  .kf-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-bottom: 10px; }
+  .kf-h b { font-size: 16px; font-weight: 800; color: var(--ink); }
+  .kf-h > span:last-child { font-size: 12px; color: var(--muted); word-break: keep-all; }
+  .kf-no { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 99px; background: var(--ink); color: #fff; font-size: 14px; font-weight: 800; align-self: center; }
+  .kf-arrow { display: flex; align-items: center; gap: 8px; justify-content: center; padding: 6px 8px; font-size: 12.5px; color: var(--muted); text-align: center; word-break: keep-all; }
+  .kf-arrow span { font-size: 18px; font-weight: 800; color: var(--ink-2); }
+  .kf-bar { display: block; width: 100%; height: 6px; border-radius: 99px; background: var(--line-2); overflow: hidden; }
+  .kf-bar i { display: block; height: 100%; background: var(--accent); }
+  .kc.done .kf-bar i { background: var(--success); }
+  .kc.weak { border-color: #e2a35a; }
+  .kf-warn { align-self: flex-start; font-size: 11.5px; font-weight: 800; padding: 2px 8px; border-radius: 99px; background: #fdf0e1; color: #b45f06; }
+  .kf-rel, .kf-mean { font-size: 12px; color: var(--muted); line-height: 1.45; word-break: keep-all; }
+  .kf-list { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; color: var(--ink-2); word-break: keep-all; }
+  .kf-list b { font-family: var(--num); color: var(--ink); }
+  .kf-next { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .kf-next li { border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+  .kf-next li.hot { border-color: #e2a35a; background: #fffaf3; }
+  .kf-kind { font-size: 11.5px; font-weight: 800; color: #b45f06; }
+  .kf-txt { color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
+  .kf-txt em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 4px; }
+  .kf-fold { margin-top: 8px; font-size: 12.5px; color: var(--ink-2); }
+  .kf-fold summary { cursor: pointer; font-weight: 700; color: var(--muted); padding: 4px 0; }
+  .kf-fold > div { padding: 6px 0 2px; line-height: 1.6; word-break: keep-all; }
   .ks-hidden-btn { margin-left: 6px; min-height: 32px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 99px; background: var(--card, #fff); font-size: 12px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
   .ks-hidden-note { text-align: center; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
   .kd-plain { margin-top: 10px; font-size: 15px; font-weight: 600; color: var(--ink-2); line-height: 1.5; word-break: keep-all; }

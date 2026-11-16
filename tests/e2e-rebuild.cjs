@@ -215,9 +215,12 @@ const setInd = async (p, id, tgt, cur) => {
       assert.equal(await p.locator('#kpi-member-view .ks-sec.lead .kc').count(), 9);
       assert.equal(await p.locator('#kpi-member-view .ks-sec.lag .kc').count(), 5);
       const v = await p.locator('#kpi-member-view').innerText();
-      assert.ok(/신한솔 선행지표/.test(v) && /신한솔 후행지표/.test(v) && /선행지표 평균 진척률/.test(v) && /후행지표 평균 진척률/.test(v) && /개인 평가 점수 아님/.test(v), '선행·후행 구분');
+      // 단계별 흐름(2026-11-16): ① 내가 한 업무(선행) → ② 고객의 실제 활동 변화 → ③ 실제 성과(후행) → ④ 지금 확인할 업무
+      assert.deepStrictEqual(await p.locator('#kpi-member-view .kf-step .kf-h b').allInnerTexts(), ['신한솔 · 내가 한 업무', '고객의 실제 활동 변화', '실제 성과', '지금 확인할 업무']);
+      assert.ok(/선행지표/.test(v) && /후행지표/.test(v) && /선행지표 평균 진척률/.test(v) && /내 업무 달성률과 다름/.test(v), '선행·후행 구분');
+      assert.ok(!/후행지표 평균 진척률/.test(v), '고객 비율을 평균 진척률로 섞지 않음');
       assert.ok(/실행/.test(v) && /운영 지원/.test(v), '실행·운영 지원 표시');
-      assert.ok(!/실제 성과/.test(v), '개인 성과 표현 없음');
+      assert.ok(!/신한솔 · 실제 성과|개인 성과/.test(v) && /개인 평가 점수 아님/.test(v), '개인 성과 표현 없음 — 고객 변화로만');
       assert.ok(/미응답 업체 재연락 관리/.test(v) && /고객등급 상승률/.test(v));
       await pick('박희선');
       assert.equal(await p.locator('#kpi-member-view .kc').count(), 0);
@@ -245,8 +248,9 @@ const setInd = async (p, id, tgt, cur) => {
       ['계산식', '분모', '분자', '가중치', '선행활동 점수', '담당 업체·현장', '관리 대상 미팅', '미확정', '월별'].forEach(w => assert.ok(!v.includes(w), w + ' 노출'));
       assert.equal(await p.locator('#kpi-root input').count(), 0, '첫 화면에 입력칸 없음');
       const parts = await p.locator('#kpi-root .kc[data-ind="LI02"]').evaluate(e => [...e.children].map(c => c.className));
-      assert.deepStrictEqual(parts, ['kc-tag', 'kc-pct', 'kc-desc', 'kc-foot']);
-      assert.ok(/실적 \/ 목표/.test(await indText(p, 'LI02')));
+      assert.deepStrictEqual(parts.slice(0, 3).concat(parts.slice(-1)), ['kc-tag', 'kc-pct', 'kc-desc', 'kc-foot']);
+      assert.ok(parts.includes('kf-bar'), '진행 막대');
+      assert.ok(/처리 \/ 대상/.test(await indText(p, 'LI02')));
     });
     await t('입력 없으면 미측정 · 상세보기에서 목표·현재 실적 입력하면 카드 달성률 자동', async () => {
       assert.ok(/미측정/.test(await indText(p, 'LI02')));
@@ -282,7 +286,7 @@ const setInd = async (p, id, tgt, cur) => {
       const d0 = JSON.stringify(await db());
       const lead = await p.locator('#kpi-member-view .ks-sec.lead .kc-avg').innerText();
       assert.ok(/선행지표 평균 진척률\s*60%/.test(lead) && /측정된 2\/9개/.test(lead), lead); // LI02 70%, LI07 50% → (70+50)/2
-      assert.ok(/후행지표 평균 진척률\s*—/.test(await p.locator('#kpi-member-view .ks-sec.lag .kc-avg').innerText()));
+      assert.equal(await p.locator('#kpi-member-view .ks-sec.lag .kc-avg').count(), 0, '후행(고객 비율)은 평균 진척률을 만들지 않음');
       assert.equal(JSON.stringify(await db()), d0);
     });
     await t('개인 지표 상세는 쉬운 보기: 이번 달 · 월별 기록만 펼치고 계산 방법·세부업무·변경 이력은 접음, 진행률은 달성률과 분리', async () => {

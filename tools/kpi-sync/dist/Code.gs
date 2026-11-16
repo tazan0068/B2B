@@ -25,9 +25,10 @@ var FIREBASE_API_KEY = 'AIzaSyDyQBXCc0WN4wFVsGBLZ6GXsyV0sGvyG34';          // �
 var FIREBASE_PROJECT = 'pour-dashboard';
 var CARD_ACCOUNT = 'hansol2-owner@pour-dashboard.firebaseapp.com';                  // 카드 공용 계정
 var COMPANIES_DOC = 'shin2-companies-staging';
+var ACTIVITIES_DOC = 'shin2-customer-activities-v1';   // 미팅 안내·조율 활동 기록(후속조치 판정에만 씀)
 var CARD_HTML_URL = 'https://bridgeone-m.github.io/card/index.html';
 var TRACKER_URL = 'https://b2b-task-tracker-39144-default-rtdb.asia-southeast1.firebasedatabase.app/shared/b2bOpsTracker.json';
-var CARD_BUILD = 'd4a56ea';                      // 판정 함수를 잘라 온 카드 버전
+var CARD_BUILD = '6b5cc7e';                      // 판정 함수를 잘라 온 카드 버전
 var SYNC_HOURS = [7, 13];
 
 function installTriggers_() {
@@ -42,6 +43,8 @@ function questionnaireMailSentLabel() { return null; } // 질문서 메일 발�
 var MEETING_MISS_GRACE_DAYS = 3;
 var MEETING_REG_LIMIT_DAYS = 14;
 var MEETING_COORD_LIMIT_DAYS = 30;
+var MEETING_RESULT_LIMIT_DAYS = 14;
+var MEETING_CARD_BULK_END = 1787670000000;
 function getMouManualConfirm(co){
     const v = co && co.mouManualConfirm;
     return (v && typeof v === 'object') ? v : null;
@@ -319,9 +322,22 @@ function meetingCoordSince(text, now){
     if(d.getTime() > now) d = new Date(ref.getFullYear() - 1, parseInt(m[1],10) - 1, parseInt(m[2],10));
     return d.getTime();
   }
-function classifyMeetingMiss(co, progress, now){
+function meetingContactTs(co, key, since, acts){
+    const DAY = 86400000, from = (since == null ? 0 : since - DAY), hits = [];
+    const types = key === 'm1' ? ['firstMeeting'] : ['postSecondMeeting','secondMeetingRequest'];
+    (co.m1MailLog || []).forEach(l=>{ if(l && l.status === 'sent' && types.indexOf(l.mailType) >= 0){ const t = Date.parse(l.sentAt); if(!isNaN(t)) hits.push(t); } });
+    const sc = (co.partnerDashboard && co.partnerDashboard.stageCorrections) || {};
+    const sch = sc[key + 'Scheduled']; if(sch && sch.correctedAt){ const t = Date.parse(sch.correctedAt); if(!isNaN(t)) hits.push(t); }
+    const re = key === 'm1' ? /1\s*차\s*미팅/ : /2\s*차\s*미팅/;
+    (acts || []).forEach(a=>{ const tx = String((a && (a.activityText || a.originalText)) || ''); if(re.test(tx) && /메일|조율|일정|연락|안내|예정/.test(tx)){ const t = Date.parse(a.createdAt); if(!isNaN(t)) hits.push(t); } });
+    const ok = hits.filter(t=> t >= from).sort((a,b)=> a - b);
+    return ok.length ? ok[0] : null;
+  }
+function classifyMeetingMiss(co, progress, now, acts){
     const out = [];
     if(!co || D.isAgreementTerminated(co) || !progress || !progress.stages) return out;
+    // 보류·미진행은 따로 관리 — 이미 끝낸 미팅(완료)은 그대로 두고, 아직 안 끝난 단계만 판정에서 뺀다
+    const held = !!((co.dealHold && co.dealHold.active) || (co.dealDeclined && co.dealDeclined.active));
     const DAY = 86400000;
     const nm = resolveNewMouForCompany(co) || {};
     const byKey = {}; progress.stages.forEach(s=> byKey[s.key] = s);
@@ -333,9 +349,10 @@ function classifyMeetingMiss(co, progress, now){
         out.push(typeof st.ts === 'number' ? { key, status:'done', due:st.ts } : { key, status:'exempt', due:null });
         return;
       }
+      if(held) return;
       if(st.state === 'scheduled' && typeof st.ts === 'number'){
         const days = Math.floor((now - st.ts) / DAY); // 예정일 다음 날 = 1일
-        out.push({ key, status: days > MEETING_MISS_GRACE_DAYS ? 'missed' : 'scheduled', due:st.ts, days });
+        out.push({ key, status: days <= MEETING_MISS_GRACE_DAYS ? 'scheduled' : (days <= MEETING_MISS_GRACE_DAYS + MEETING_RESULT_LIMIT_DAYS ? 'result' : 'missed'), due:st.ts, days });
         return;
       }
       // 날짜로 읽히지 않는 글(단계 보정이 있으면 원본 글은 보지 않는다)
@@ -355,8 +372,16 @@ function classifyMeetingMiss(co, progress, now){
         return;
       }
       if(need && need.type === key){
-        const a = need.anchor && typeof need.anchor.ts === 'number' ? need.anchor.ts : null;
+        let a = need.anchor && typeof need.anchor.ts === 'number' ? need.anchor.ts : null;
         if(a == null){ out.push({ key, status:'format', due:null, text:'기준일 없음' }); return; }
+        const reg = Date.parse(co.createdAt);
+        if(!isNaN(reg) && reg >= MEETING_CARD_BULK_END && reg > a) a = reg;   // 소급 입력 업체는 카드 등록일부터
+        const contact = meetingContactTs(co, key, a, acts);
+        if(contact != null){
+          const cdays = Math.floor((now - contact) / DAY);
+          out.push({ key, status: cdays > MEETING_COORD_LIMIT_DAYS ? 'late' : 'contacted', due: contact + MEETING_COORD_LIMIT_DAYS * DAY, days: cdays, contactTs: contact });
+          return;
+        }
         const days = Math.floor((now - a) / DAY);
         out.push({ key, status: days > MEETING_REG_LIMIT_DAYS ? 'late' : 'waiting', due: a + MEETING_REG_LIMIT_DAYS * DAY, days });
       }
@@ -365,14 +390,15 @@ function classifyMeetingMiss(co, progress, now){
   }
 var D = { isAgreementInvalidated: isAgreementInvalidated, isMouManuallyConfirmed: isMouManuallyConfirmed, isAgreementTerminated: isAgreementTerminated };
 var CardLogic = {
-  rule: { grace: MEETING_MISS_GRACE_DAYS, reg: MEETING_REG_LIMIT_DAYS, coord: MEETING_COORD_LIMIT_DAYS },
+  rule: { grace: MEETING_MISS_GRACE_DAYS, reg: MEETING_REG_LIMIT_DAYS, coord: MEETING_COORD_LIMIT_DAYS, result: MEETING_RESULT_LIMIT_DAYS },
   // 카드 업무관리와 같은 대상(소프트 삭제 제외)으로 업체·미팅별 판정 목록을 만든다
-  collect: function (companies, snapshot, now) {
+  // acts: { 업체id: [활동 기록] } — 안내 메일·일정 조율 활동도 후속조치로 본다(없으면 메일·일정 기록만 본다)
+  collect: function (companies, snapshot, now, acts) {
     window.SHIN2_PARTNER_SNAPSHOT = snapshot || []; _partnerNameIndexCache = null;
     var out = [];
     (companies || []).forEach(function (co) {
       if (!co || co.deletedAt) return;
-      classifyMeetingMiss(co, buildProgressStages(co), now).forEach(function (r) { out.push({ id: String(co.id), key: r.key, status: r.status, due: r.due }); });
+      classifyMeetingMiss(co, buildProgressStages(co), now, acts ? (acts[String(co.id)] || []) : null).forEach(function (r) { out.push({ id: String(co.id), key: r.key, status: r.status, due: r.due }); });
     });
     return out;
   }
@@ -380,12 +406,12 @@ var CardLogic = {
 /* CARD-LOGIC-END */
 /* KPI-SYNC-START */
 var MeetingKpi = (function () {
-  var OK = { done: 1, scheduled: 1, waiting: 1 }, MISS = { missed: 1, late: 1 }, CHECK = { coord: 1, branch: 1, format: 1 };
+  var OK = { done: 1, scheduled: 1, waiting: 1, contacted: 1, result: 1 }, MISS = { missed: 1, late: 1 }, CHECK = { coord: 1, branch: 1, format: 1 };
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function monthOf(ts) { var d = new Date(ts); return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
   function monthStart(month) { return new Date(+month.slice(0, 4), +month.slice(5, 7) - 1, 1).getTime(); }
   function prevMonth(month) { var d = new Date(+month.slice(0, 4), +month.slice(5, 7) - 2, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
-  function emptyCounts() { return { done: 0, scheduled: 0, waiting: 0, missed: 0, late: 0, carried: 0, coord: 0, branch: 0, format: 0, exempt: 0 }; }
+  function emptyCounts() { return { done: 0, scheduled: 0, waiting: 0, contacted: 0, result: 0, missed: 0, late: 0, carried: 0, coord: 0, branch: 0, format: 0, exempt: 0 }; }
   function monthly(items, month, now) {
     var start = monthStart(month), current = monthOf(now) === month, c = emptyCounts(), num = 0, den = 0;
     items.forEach(function (it) {
@@ -410,7 +436,7 @@ var MeetingKpi = (function () {
   return { monthOf: monthOf, monthly: monthly, targetMonths: targetMonths };
 })();
 /* KPI-SYNC-END */
-function ruleText_() { return '카드 미팅 판정 · 유예 ' + CardLogic.rule.grace + '일 · 등록 기한 ' + CardLogic.rule.reg + '일 · 조율 기한 ' + CardLogic.rule.coord + '일 (카드 ' + CARD_BUILD + ')'; }
+function ruleText_() { return '카드 미팅 판정 · 유예 ' + CardLogic.rule.grace + '일 · 결과 기록 ' + CardLogic.rule.result + '일 · 등록 기한 ' + CardLogic.rule.reg + '일 · 조율 기한 ' + CardLogic.rule.coord + '일 · 안내 메일·일정 조율도 후속조치 · 보류·미진행 남은 단계 제외 (카드 ' + CARD_BUILD + ')'; }
 
 // 계산하고(write 이면) 트래커에 쓴다. 실패해도 예외를 밖으로 던지지 않고 상태만 남긴다.
 function syncOnce_(write) {
@@ -419,9 +445,10 @@ function syncOnce_(write) {
   try {
     var now = Date.now();
     var companies = readCompaniesDoc_();
+    var acts = readActivitiesByCompany_();   // 못 읽으면 null — 메일·일정 기록만으로 판정
     var snapshot = loadPartnerSnapshot_();
     if (snapshot === null) throw new Error('READ: 카드 참조 명단을 읽지 못함');
-    var items = CardLogic.collect(companies, snapshot, now);
+    var items = CardLogic.collect(companies, snapshot, now, acts);
     var patch = {}, rule = ruleText_(), at = new Date(now).toISOString();
     MeetingKpi.targetMonths(now).forEach(function (m) {
       var r = MeetingKpi.monthly(items, m, now);
@@ -445,7 +472,9 @@ function status_(o) {
 }
 
 // ---- 고객관리카드 읽기(REST, GET 만) ----
+var tokCache_ = null;   // 한 번 실행하는 동안 로그인 한 번만(업체·활동 두 문서를 읽어도)
 function idToken_() {
+  if (tokCache_) return tokCache_;
   var pw = PropertiesService.getScriptProperties().getProperty('CARD_PASSWORD');
   if (!pw) throw new Error('CONFIG: CARD_PASSWORD 스크립트 속성이 없습니다.');
   var res = UrlFetchApp.fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=' + FIREBASE_API_KEY, {
@@ -454,7 +483,8 @@ function idToken_() {
   });
   if (res.getResponseCode() !== 200) throw new Error('AUTH: 로그인 실패 HTTP ' + res.getResponseCode() + ' — 다음 예약 시각까지 다시 시도하지 않음');
   var j = JSON.parse(res.getContentText());
-  return { idToken: j.idToken, uid: j.localId };
+  tokCache_ = { idToken: j.idToken, uid: j.localId };
+  return tokCache_;
 }
 function readCompaniesDoc_() {
   var tok = idToken_();
@@ -466,6 +496,22 @@ function readCompaniesDoc_() {
   var value = fields.value ? fsValue_(fields.value) : null;
   if (!Array.isArray(value)) throw new Error('READ: 업체 목록 형식 오류');
   return value;
+}
+// 활동 기록을 업체별로 묶는다(본문·시각만). 읽기 실패는 null — 집계는 계속한다.
+function readActivitiesByCompany_() {
+  try {
+    var tok = idToken_();
+    var url = 'https://firestore.googleapis.com/v1/projects/' + FIREBASE_PROJECT + '/databases/(default)/documents/users/'
+      + encodeURIComponent(tok.uid) + '/shin2/' + ACTIVITIES_DOC;
+    var res = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + tok.idToken } });
+    if (res.getResponseCode() !== 200) return null;
+    var fields = (JSON.parse(res.getContentText()).fields) || {};
+    var value = fields.value ? fsValue_(fields.value) : null;
+    if (!Array.isArray(value)) return null;
+    var by = {};
+    value.forEach(function (a) { if (!a || !a.companyId) return; var k = String(a.companyId); (by[k] = by[k] || []).push({ activityText: a.activityText || a.originalText || '', createdAt: a.createdAt }); });
+    return by;
+  } catch (err) { return null; }
 }
 // Firestore REST 값 → 일반 JS 값
 function fsValue_(v) {

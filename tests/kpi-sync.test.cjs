@@ -38,15 +38,16 @@ const items = cardContext(NOW).CardLogic.collect(COMPANIES, [], NOW);
 const byId = k => items.filter(r => r.id === k).map(r => r.key + ':' + r.status).join(',');
 
 t('카드 원본 함수 판정: 상태별 분류', () => {
-  assert.equal(byId('c1'), 'm1:late'); assert.equal(byId('c2'), 'm1:waiting'); assert.equal(byId('c3'), 'm1:missed');
+  assert.equal(byId('c1'), 'm1:late'); assert.equal(byId('c2'), 'm1:waiting'); assert.equal(byId('c3'), 'm1:result');   // 2026-11-16 후속관리 기준: 예정일+3일 뒤 14일까지는 결과 기록 필요
   assert.equal(byId('c4'), 'm1:scheduled'); assert.equal(byId('c5'), 'm1:done,m2:waiting'); assert.equal(byId('c6'), 'm1:coord');
   assert.equal(byId('c7'), 'm1:late'); assert.equal(byId('c8'), 'm1:branch'); assert.equal(byId('c9'), 'm1:done,m2:exempt');
   assert.equal(byId('c10'), 'm1:done,m2:late'); assert.equal(byId('c13'), 'm1:format');
 });
 t('협약 종료·삭제·질문서 회신 전 업체는 판정 대상 아님', () => { ['c11', 'c12', 'c14'].forEach(k => assert.equal(byId(k), '', k)); });
-t('기한: 예정일 + 3일 안이면 누락 아님, 넘으면 누락', () => {
+t('기한: 예정일 + 3일 안이면 예정, 그 뒤 14일까지 결과 기록 필요, 넘으면 누락', () => {
   const one = s => cardContext(day(s) + 12 * 3600e3).CardLogic.collect([co(3, { qReplyLabel: '26.10.01', m1ScheduledLabel: '26.11.10' })], [], day(s) + 12 * 3600e3)[0].status;
-  assert.equal(one('2026-11-13'), 'scheduled'); assert.equal(one('2026-11-14'), 'missed');
+  assert.equal(one('2026-11-13'), 'scheduled'); assert.equal(one('2026-11-14'), 'result');
+  assert.equal(one('2026-11-27'), 'result'); assert.equal(one('2026-11-28'), 'missed');
 });
 t('기한: 미팅 필요 후 14일 안이면 대기, 넘으면 등록 지연', () => {
   const one = s => cardContext(day(s) + 12 * 3600e3).CardLogic.collect([co(1, { qReplyLabel: '26.11.01' })], [], day(s) + 12 * 3600e3)[0].status;
@@ -55,9 +56,9 @@ t('기한: 미팅 필요 후 14일 안이면 대기, 넘으면 등록 지연', (
 
 t('월별 집계: 이번 달(11월) 분자·분모, 이월은 비율에서 빼고 건수만', () => {
   const r = MeetingKpi.monthly(items, '2026-11', NOW);
-  // 11월 기준일: c2 대기(11.24) · c3 누락(11.10) · c4 예정(11.19) · c5 완료(11.10)·2차 대기(11.24) / 이월(비율 제외): c1(10.15)·c7(10.31)·c10(10.19)
-  assert.equal(r.den, 5); assert.equal(r.num, 4);
-  assert.equal(r.counts.carried, 3); assert.equal(r.counts.missed, 1); assert.equal(r.counts.late, 0);
+  // 11월 기준일: c2 대기(11.24) · c3 결과 기록 필요(11.10) · c4 예정(11.19) · c5 완료(11.10)·2차 대기(11.24) / 이월(비율 제외): c1(10.15)·c7(10.31)·c10(10.19)
+  assert.equal(r.den, 5); assert.equal(r.num, 5);
+  assert.equal(r.counts.carried, 3); assert.equal(r.counts.missed, 0); assert.equal(r.counts.result, 1); assert.equal(r.counts.late, 0);
   assert.equal(r.counts.coord, 1); assert.equal(r.counts.branch, 1); assert.equal(r.counts.format, 1); assert.equal(r.counts.exempt, 1);
 });
 t('월별 집계: 지난달(10월)은 기준일이 10월인 미팅만, 확인 필요 건수는 넣지 않음', () => {
@@ -65,12 +66,12 @@ t('월별 집계: 지난달(10월)은 기준일이 10월인 미팅만, 확인 �
   // 10월: c9 완료(10.05) · c10 완료(10.05) · c1 지연(10.15) · c10 2차 지연(10.19) · c7 지연(10.31)
   assert.equal(r.den, 5); assert.equal(r.num, 2); assert.equal(r.counts.carried, 0); assert.equal(r.counts.coord, 0);
 });
-t('트래커 달성률 계산과 맞물림: 4/5 = 80%', () => {
+t('트래커 달성률 계산과 맞물림: 5/5 = 100%', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const block = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).find(b => b.includes('var PerfCalc'));
   const c = { SEED: {} }; vm.runInNewContext(block, c);
   const r = MeetingKpi.monthly(items, '2026-11', NOW);
-  assert.equal(c.PerfCalc.rate({ mode: 'auto', num: r.num, den: r.den }).value, 80);
+  assert.equal(c.PerfCalc.rate({ mode: 'auto', num: r.num, den: r.den }).value, 100);
 });
 t('다시 계산할 달: 5일까지는 지난달 포함, 6일부터 이번 달만', () => {
   assert.deepStrictEqual(MeetingKpi.targetMonths(day('2026-12-05')), ['2026-11', '2026-12']);
@@ -83,11 +84,11 @@ t('카드 MOU 진행상황 "미팅 누락·일정 확인" 필터와 서버 집�
   ctx.COMPANIES = COMPANIES;
   vm.runInContext([
     ...['collectMeetingMiss', 'meetingMissIndex'].map(n => cutFunction(cardHtml, n)),
-    'var isMeetingMissRow = function (r) { return r.status === "missed" || r.status === "late"; }; var MEETING_CHECK_LABEL = { coord: 1, branch: 1, format: 1 };',
+    'var isMeetingMissRow = function (r) { return r.status === "missed" || r.status === "late"; }; var MEETING_CHECK_LABEL = { coord: 1, branch: 1, format: 1, contacted: 1, result: 1 };',
     'D.loadActiveCompanies = function () { return COMPANIES.filter(function (c) { return !c.deletedAt; }); };',
     'var out = []; meetingMissIndex().forEach(function (rows, id) { rows.forEach(function (r) { out.push(id + ":" + r.key + ":" + r.status); }); }); this.ui = JSON.stringify(out.sort());',
   ].join(String.fromCharCode(10)), ctx);
-  const srv = items.filter(r => ['missed', 'late', 'coord', 'branch', 'format'].includes(r.status)).map(r => r.id + ':' + r.key + ':' + r.status).sort();
+  const srv = items.filter(r => ['missed', 'late', 'coord', 'branch', 'format', 'contacted', 'result'].includes(r.status)).map(r => r.id + ':' + r.key + ':' + r.status).sort();
   assert.equal(ctx.ui, JSON.stringify(srv));
 });
 
@@ -127,7 +128,7 @@ t('서버: 트래커 perfAuto 에만 쓰고 업체 정보는 보내지 않음', 
   const body = JSON.parse(s.log.writes[0].body);
   assert.deepStrictEqual(Object.keys(body), ['perfAuto/LI01_2026-11']);
   const rec = body['perfAuto/LI01_2026-11'];
-  assert.equal(rec.num, 4); assert.equal(rec.den, 5); assert.equal(rec.mode, 'auto'); assert.equal(rec.ref, 'LI01');
+  assert.equal(rec.num, 5); assert.equal(rec.den, 5); assert.equal(rec.mode, 'auto'); assert.equal(rec.ref, 'LI01');
   const text = s.log.writes[0].body;
   COMPANIES.forEach(c => { assert.ok(!text.includes(c.name), '업체명 전송'); assert.ok(!text.includes('"' + c.id + '"'), '업체 id 전송'); });
   assert.deepStrictEqual(s.log.other, []);
@@ -145,6 +146,19 @@ t('다른 프로젝트에 넣어도 겹치는 전역 이름 없음(kpiSync… 3�
   const before = new Set(Object.keys(ctx));
   vm.runInContext(gs, ctx);
   assert.equal(JSON.stringify(Object.keys(ctx).filter(k => !before.has(k)).sort()), JSON.stringify(['KpiSync', 'kpiSyncCheck', 'kpiSyncInstallTriggers', 'kpiSyncRun']));
+});
+
+t('2026-11-16 후속관리 기준: 안내 메일·활동 기록은 후속조치, 보류는 남은 단계만 제외', () => {
+  const ctx = cardContext(NOW);
+  const mail = { m1MailLog: [{ mailType: 'firstMeeting', status: 'sent', sentAt: '2026-11-01T01:00:00Z' }] };
+  const a = ctx.CardLogic.collect([co(21, { qReplyLabel: '26.10.01', qReplyDone: true }, mail)], [], NOW).map(r => r.key + ':' + r.status).join(',');
+  assert.equal(a, 'm1:contacted');
+  const b = ctx.CardLogic.collect([co(22, { qReplyLabel: '26.10.01', m1Label: '26.10.28', m1Done: true })], [], NOW, { c22: [{ activityText: '2차미팅 일정 조율 중', createdAt: '2026-11-16T01:00:00Z' }] }).map(r => r.key + ':' + r.status).join(',');
+  assert.equal(b, 'm1:done,m2:contacted');
+  const c = ctx.CardLogic.collect([co(23, { qReplyLabel: '26.10.01', m1Label: '26.10.05', m1Done: true }, { dealHold: { active: true, afterStage: 'm1' } })], [], NOW).map(r => r.key + ':' + r.status).join(',');
+  assert.equal(c, 'm1:done');
+  const m = MeetingKpi.monthly([{ id: 'x', key: 'm1', status: 'contacted', due: day('2026-11-15') }, { id: 'y', key: 'm2', status: 'missed', due: day('2026-11-05') }], '2026-11', NOW);
+  assert.equal(m.num, 1); assert.equal(m.den, 2); assert.equal(m.counts.contacted, 1);
 });
 
 console.log(results.join('\n') + `\n\n${pass} / ${results.length} 성공`);

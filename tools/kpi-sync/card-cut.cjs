@@ -5,9 +5,10 @@ const CARD_FNS = [
   'parsePartnerDateLabel', 'normCompanyNameForPartnerMatch', 'getPartnerNameIndex', 'findPartnerRecordForCompany',
   'resolveNewMouForCompany', 'resolvePartnerAgreementDate', 'getStageCorrections', 'findStageCorrection',
   'stageCorrectionToStateFields', 'buildProgressStages', 'getMouStage', 'isConfirmedPartner',
-  'classifyWorkQueueMeeting', 'meetingMissTextKind', 'meetingCoordSince', 'classifyMeetingMiss',
+  'classifyWorkQueueMeeting', 'meetingMissTextKind', 'meetingCoordSince', 'meetingContactTs', 'classifyMeetingMiss',
 ];
-const CARD_CONSTS = ['MEETING_MISS_GRACE_DAYS', 'MEETING_REG_LIMIT_DAYS', 'MEETING_COORD_LIMIT_DAYS'];
+// 2026-11-16 후속관리 기준: 결과 기록 기한·카드 일괄 등록 끝 시각도 카드에서 그대로 가져온다
+const CARD_CONSTS = ['MEETING_MISS_GRACE_DAYS', 'MEETING_REG_LIMIT_DAYS', 'MEETING_COORD_LIMIT_DAYS', 'MEETING_RESULT_LIMIT_DAYS', 'MEETING_CARD_BULK_END'];
 
 function cutFunction(html, name) {
   const i = html.indexOf(`function ${name}(`);
@@ -40,14 +41,15 @@ function cardLogicSource(html) {
     CARD_FNS.map(n => cutFunction(html, n)).join('\n'),
     'var D = { isAgreementInvalidated: isAgreementInvalidated, isMouManuallyConfirmed: isMouManuallyConfirmed, isAgreementTerminated: isAgreementTerminated };',
     'var CardLogic = {',
-    '  rule: { grace: MEETING_MISS_GRACE_DAYS, reg: MEETING_REG_LIMIT_DAYS, coord: MEETING_COORD_LIMIT_DAYS },',
+    '  rule: { grace: MEETING_MISS_GRACE_DAYS, reg: MEETING_REG_LIMIT_DAYS, coord: MEETING_COORD_LIMIT_DAYS, result: MEETING_RESULT_LIMIT_DAYS },',
     '  // 카드 업무관리와 같은 대상(소프트 삭제 제외)으로 업체·미팅별 판정 목록을 만든다',
-    '  collect: function (companies, snapshot, now) {',
+    '  // acts: { 업체id: [활동 기록] } — 안내 메일·일정 조율 활동도 후속조치로 본다(없으면 메일·일정 기록만 본다)',
+    '  collect: function (companies, snapshot, now, acts) {',
     '    window.SHIN2_PARTNER_SNAPSHOT = snapshot || []; _partnerNameIndexCache = null;',
     '    var out = [];',
     '    (companies || []).forEach(function (co) {',
     '      if (!co || co.deletedAt) return;',
-    '      classifyMeetingMiss(co, buildProgressStages(co), now).forEach(function (r) { out.push({ id: String(co.id), key: r.key, status: r.status, due: r.due }); });',
+    '      classifyMeetingMiss(co, buildProgressStages(co), now, acts ? (acts[String(co.id)] || []) : null).forEach(function (r) { out.push({ id: String(co.id), key: r.key, status: r.status, due: r.due }); });',
     '    });',
     '    return out;',
     '  }',

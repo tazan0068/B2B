@@ -23,7 +23,8 @@ async function newPage(browser, opts) {
 }
 const ready = p => p.waitForFunction(() => /동기화 완료/.test((document.querySelector('#cloud-text') || {}).textContent || ''), null, { timeout: 15000 });
 const open = async p => { await p.goto(BASE + '/'); await ready(p); await p.waitForTimeout(200); };
-const tab = async (p, id) => { await p.click(`.tab[data-page="${id}"]`); await p.waitForTimeout(120); };
+// KPI 탭: 측정 전 지표는 기본 숨김(2026-11-16) — 입력 시험은 「보기」를 켠 상태로 한다(숨김 자체는 따로 시험)
+const tab = async (p, id) => { await p.click(`.tab[data-page="${id}"]`); if (id === 'kpi' && !p.keepHidden) await p.evaluate(() => { if (!UI.kpiShowHidden) { UI.kpiShowHidden = true; renderKpiPage(); } }); await p.waitForTimeout(120); };
 const keepOld = (d, skip) => Object.keys(baseline).forEach(k => { if (!(skip || []).includes(k)) assert.deepStrictEqual(d[k], baseline[k], k + ' 변경됨'); });
 const indText = (p, id) => p.locator(`#kpi-root .kc[data-ind="${id}"]`).first().innerText();
 // 목표·현재 실적 입력은 카드를 눌러 연 상세보기 안에서 한다
@@ -342,6 +343,26 @@ const setInd = async (p, id, tgt, cur) => {
       const b = await p.locator('#modal-kpi-body').innerText();
       assert.ok(b.includes(MONTH) && b.includes(PREV), b.slice(0, 200));
       await p.evaluate(() => closeModal());
+    });
+    await t('측정 전 개인 지표는 기본 숨김 · 숨긴 개수 안내 · 「보기」로 잠시 보임 · 저장 안 함', async () => {
+      const d0 = JSON.stringify(await db());
+      p.keepHidden = true; await p.reload(); await ready(p); await tab(p, 'kpi'); await pick('신한솔');
+      const s = await p.evaluate(() => B2B.shape);
+      const measured = id => [].concat(Object.values(s.perfAuto || {}), Object.values(s.perfMonthly)).some(x => x && x.ref === id && (x.mode === 'direct' || (typeof x.num === 'number' && typeof x.den === 'number')));
+      const mine = Object.values(s.leadDefs).concat(Object.values(s.lagDefs)).filter(d => d.member === 'shs');
+      const want = mine.filter(d => measured(d.id)).map(d => d.id).sort(), hid = mine.length - want.length;
+      assert.ok(want.length > 0 && hid > 0, want.join(','));
+      const shown = (await p.locator('#kpi-member-view .kc[data-ind]').evaluateAll(a => a.map(e => e.dataset.ind))).sort();
+      assert.deepStrictEqual(shown, want);
+      assert.ok(!/미측정/.test(await p.locator('#kpi-member-view').innerText()), '미측정 카드 없음');
+      assert.ok(new RegExp('측정 전인 지표 ' + hid + '개는 숨겨').test(await p.locator('#kpi-member-view .ks-hidden-note').innerText()));
+      await p.click('#kpi-member-view .ks-hidden-btn');
+      assert.equal(await p.locator('#kpi-member-view .kc[data-ind]').count(), mine.length, '보기 누르면 모두');
+      await p.click('#kpi-member-view .ks-hidden-btn');
+      assert.equal(await p.locator('#kpi-member-view .kc[data-ind]').count(), want.length, '다시 숨김');
+      await new Promise(r => setTimeout(r, 500));
+      assert.equal(JSON.stringify(await db()), d0, '저장 없음');
+      p.keepHidden = false; await p.reload(); await ready(p); await tab(p, 'kpi'); await pick('신한솔');
     });
     /* 조재연 성과 카드 — 기록은 tools/achievements/ACH_m2_sales.json(운영에 넣는 것과 같은 파일) */
     const ACH = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'tools', 'achievements', 'ACH_m2_sales.json'), 'utf8'));

@@ -3149,6 +3149,8 @@
   .kd-h { font-size: 14px; font-weight: 800; color: var(--ink); padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
   .kd-table { overflow-x: auto; }
   /* 개인 지표 쉬운 상세: 이번 달 · 월별 기록만 펼쳐 두고 나머지는 접음 */
+  .ks-hidden-btn { margin-left: 6px; min-height: 32px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 99px; background: var(--card, #fff); font-size: 12px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
+  .ks-hidden-note { text-align: center; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
   .kd-plain { margin-top: 10px; font-size: 15px; font-weight: 600; color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
   .kd-plain b { font-family: var(--num); font-size: 18px; color: var(--ink); margin: 0 2px; }
   .kd-from { margin-top: 4px; font-size: 12.5px; color: var(--muted); }
@@ -8817,14 +8819,22 @@ const B2B_LEAD_KIND = { LI01: "exec", LI02: "exec", LI03: "exec", LI07: "exec", 
 const B2B_LAG_KPI = { LG1: "MK1", LG2: "MK2", LG3: "MK3" };
 function b2bKindTag(id) { const exec = B2B_LEAD_KIND[id] === "exec"; return `<span class="kt-kind ${exec ? "exec" : "support"}">${exec ? "실행" : "운영 지원"}</span>`; }
 function b2bRatePill(id) { const r = b2bRate(id, b2bMonth()), ok = r.state === "ok", v = ok ? b2bPct(r.value) : 0; return `<span class="kt-rate ${!ok ? "s-todo" : v >= 100 ? "s-done" : "s-doing"}">${b2bRateLabel(r)}</span>`; }
+/* 측정 전 개인 지표 숨김(2026-11-16 사용자 「미측정된 건 다 뺄거야」) — 어느 달이든 실적(분자·분모 또는 직접 입력)이 한 번이라도
+   있는 지표만 팀원 화면·팀 KPI 연결 활동에 보인다. 정의·세부업무·기록은 지우지 않으므로 실적이 생기면 다시 보인다. 팀 KPI 3개는 그대로. */
+function b2bMeasured(id) {
+  if (UI.kpiShowHidden) return true;   // 「보기」를 누르면 잠시 모두 보임(첫 값 입력용, 저장 안 함)
+  const s = B2B.shape, ok = x => x && x.ref === id && PC.rate(x).state !== "none";
+  return Object.values(s.perfAuto || {}).some(ok) || Object.values(s.perfMonthly).some(ok);
+}
+function b2bToggleHidden() { UI.kpiShowHidden = !UI.kpiShowHidden; renderKpiPage(); }
 function b2bKpiTree(k) {
   const s = B2B.shape, byMember = {};
-  (k.links || []).filter(l => s.leadDefs[l.li]).sort((a, b) => (a.rel === "ref") - (b.rel === "ref") || (a.li < b.li ? -1 : 1)).forEach(l => {
+  (k.links || []).filter(l => s.leadDefs[l.li] && b2bMeasured(l.li)).sort((a, b) => (a.rel === "ref") - (b.rel === "ref") || (a.li < b.li ? -1 : 1)).forEach(l => {
     const d = s.leadDefs[l.li]; (byMember[d.member] = byMember[d.member] || []).push({ d, ref: l.rel === "ref" });
   });
   const members = Object.values(s.members).sort((a, b) => a.id < b.id ? -1 : 1), without = members.filter(m => !byMember[m.id]);
   const act = x => `<button class="kt-act" data-act="${x.d.id}" onclick="b2bOpenInd('${x.d.id}')"><span class="kt-no">${escapeHtml(x.d.no || "")}</span><span class="kt-name">${escapeHtml(x.d.name)}</span>${b2bKindTag(x.d.id)}${x.ref ? '<span class="kt-kind ref">참고</span>' : ""}${b2bRatePill(x.d.id)}</button>`;
-  const lags = Object.values(s.lagDefs).filter(g => B2B_LAG_KPI[g.id] === k.id).sort((a, b) => a.id < b.id ? -1 : 1);
+  const lags = Object.values(s.lagDefs).filter(g => B2B_LAG_KPI[g.id] === k.id && b2bMeasured(g.id)).sort((a, b) => a.id < b.id ? -1 : 1);
   return `<div class="kt-tree">
     <div class="kt-sub">이 KPI를 높이는 팀원 활동 <span>활동 달성률은 팀 KPI 실적에 더하지 않아요</span></div>
     ${members.filter(m => byMember[m.id]).map(m => `<div class="kt-member"><div class="kt-who"><span class="chip-dot" style="background:${m.color || "#1B4480"};"></span>${escapeHtml(b2bMemberName(m.id))} <span>${byMember[m.id].length}개</span></div>${byMember[m.id].map(act).join("")}</div>`).join("") || '<div class="kt-none">연결된 활동이 아직 없어요.</div>'}
@@ -8877,14 +8887,16 @@ function b2bAchCard(x) {
 }
 function b2bMemberSection(mid) {
   const s = B2B.shape, byId = (a, b) => a.id < b.id ? -1 : 1, name = escapeHtml(b2bMemberName(mid));
-  const leads = Object.values(s.leadDefs).filter(l => l.member === mid).sort((a, b) => (B2B_LEAD_KIND[a.id] !== "exec") - (B2B_LEAD_KIND[b.id] !== "exec") || byId(a, b));
-  const lags = Object.values(s.lagDefs).filter(g => g.member === mid).sort(byId), achs = Object.values(s.achievements).filter(x => x.member === mid).sort(byId);
-  if (!leads.length && !lags.length && !achs.length) return `<div class="ks-empty">아직 ${name}님의 지표가 없어요.</div>`;
+  const allInd = Object.values(s.leadDefs).concat(Object.values(s.lagDefs)).filter(d => d.member === mid), hidden = UI.kpiShowHidden ? 0 : allInd.filter(d => !b2bMeasured(d.id)).length;
+  const leads = Object.values(s.leadDefs).filter(l => l.member === mid && b2bMeasured(l.id)).sort((a, b) => (B2B_LEAD_KIND[a.id] !== "exec") - (B2B_LEAD_KIND[b.id] !== "exec") || byId(a, b));
+  const lags = Object.values(s.lagDefs).filter(g => g.member === mid && b2bMeasured(g.id)).sort(byId), achs = Object.values(s.achievements).filter(x => x.member === mid).sort(byId);
+  if (!allInd.length && !achs.length) return `<div class="ks-empty">아직 ${name}님의 지표가 없어요.</div>`;
   const group = (cls, title, help, label, list) => list.length ? `<div class="ks-sec ${cls}"><div class="ks-h">${title} <span>${help}</span></div>
     <div class="kc-grid">${list.map(d => b2bCard(d, cls)).join("")}</div>${b2bAvgLine(label, list)}</div>` : "";
   return (achs.length ? `<div class="ks-sec ach"><div class="ks-h">${name} 성과 <span>추진 활동 이후 관찰된 팀 변화 · 개인 단독 효과로 보지 않음</span></div><div class="kc-grid">${achs.map(b2bAchCard).join("")}</div></div>` : "") +
     group("lead", name + " 선행지표", "직접 하는 일 · 실행과 운영 지원", "선행지표 평균 진척률", leads) +
-    group("lag", name + " 후행지표", "관리한 업체에서 생긴 변화 · 개인 평가 점수 아님", "후행지표 평균 진척률", lags);
+    group("lag", name + " 후행지표", "관리한 업체에서 생긴 변화 · 개인 평가 점수 아님", "후행지표 평균 진척률", lags) +
+    (UI.kpiShowHidden ? `<div class="ks-hidden-note"><button class="ks-hidden-btn" onclick="b2bToggleHidden()">측정 전 지표 다시 숨기기</button></div>` : hidden ? `<div class="ks-hidden-note">아직 측정 전인 지표 ${hidden}개는 숨겨 두었어요 · 실적이 들어오면 다시 보여요 <button class="ks-hidden-btn" onclick="b2bToggleHidden()">보기</button></div>` : "");
 }
 renderKpiPage = function () {
   const root = $("kpi-root"); if (!root || !B2B.shape) return;
@@ -8894,7 +8906,7 @@ renderKpiPage = function () {
   if ($("kpi-updated")) $("kpi-updated").textContent = month;
   const kpis = Object.values(s.mainKpis).sort((a, b) => (B2B_KPI_ORDER[a.id] || 9) - (B2B_KPI_ORDER[b.id] || 9) || (a.id < b.id ? -1 : 1));
   const chips = Object.values(s.members).sort((a, b) => a.id < b.id ? -1 : 1).map(m => {
-    const n = Object.values(s.leadDefs).concat(Object.values(s.lagDefs), Object.values(s.achievements)).filter(d => d.member === m.id).length;
+    const n = Object.values(s.leadDefs).concat(Object.values(s.lagDefs)).filter(d => d.member === m.id && b2bMeasured(d.id)).length + Object.values(s.achievements).filter(d => d.member === m.id).length;
     return `<button class="member-chip ${m.id === mid ? "on" : ""}" data-kpi-member="${m.id}" onclick="b2bSetKpiMember('${m.id}')"><span class="chip-dot" style="background:${m.color || "#1B4480"};"></span>${escapeHtml(String(m.name || "").trim())}<span class="chip-count">${n}</span></button>`;
   }).join("");
   root.innerHTML = `<div class="ks-h">🎯 팀 공통 KPI ${kpis.length}개 <span>최상위 목표 · 카드를 누르면 상세보기</span></div>

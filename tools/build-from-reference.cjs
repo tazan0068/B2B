@@ -238,6 +238,8 @@ once('</style>\n</head>', `
   .kd-h { font-size: 14px; font-weight: 800; color: var(--ink); padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
   .kd-table { overflow-x: auto; }
   /* 개인 지표 쉬운 상세: 이번 달 · 월별 기록만 펼쳐 두고 나머지는 접음 */
+  .ks-hidden-btn { margin-left: 6px; min-height: 32px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 99px; background: var(--card, #fff); font-size: 12px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
+  .ks-hidden-note { text-align: center; margin: 10px 0 4px; font-size: 12px; color: var(--muted); }
   .kd-plain { margin-top: 10px; font-size: 15px; font-weight: 600; color: var(--ink-2); line-height: 1.5; word-break: keep-all; }
   .kd-plain b { font-family: var(--num); font-size: 18px; color: var(--ink); margin: 0 2px; }
   .kd-from { margin-top: 4px; font-size: 12.5px; color: var(--muted); }

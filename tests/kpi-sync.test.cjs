@@ -103,13 +103,13 @@ function toFs(v) {
   if (typeof v === 'object') { const f = {}; Object.keys(v).forEach(k => { if (v[k] !== undefined) f[k] = toFs(v[k]); }); return { mapValue: Object.keys(f).length ? { fields: f } : {} }; }
   return { stringValue: String(v) };
 }
-function gasServer({ password = 'right', trackerCode = 200 } = {}) {
+function gasServer({ password = 'right', trackerCode = 200, activities = null } = {}) {
   const log = { signIns: 0, reads: 0, writes: [], other: [] }, props = { CARD_PASSWORD: 'right' };
   const resp = (code, body) => ({ getResponseCode: () => code, getContentText: () => typeof body === 'string' ? body : JSON.stringify(body) });
   const UrlFetchApp = { fetch(url, opt = {}) {
     const method = (opt.method || 'get').toLowerCase();
     if (url.startsWith('https://identitytoolkit.googleapis.com/')) { log.signIns++; return JSON.parse(opt.payload).password === props.CARD_PASSWORD ? resp(200, { idToken: 'tok', localId: 'uid1' }) : resp(400, {}); }
-    if (url.startsWith('https://firestore.googleapis.com/')) { if (method !== 'get') log.other.push('카드 쓰기 ' + method); log.reads++; return (opt.headers || {}).Authorization === 'Bearer tok' && url.endsWith('/users/uid1/shin2/shin2-companies-staging') ? resp(200, { fields: { value: toFs(COMPANIES) } }) : resp(403, {}); }
+    if (url.startsWith('https://firestore.googleapis.com/')) { if (method !== 'get') log.other.push('카드 쓰기 ' + method); log.reads++; return (opt.headers || {}).Authorization === 'Bearer tok' && url.endsWith('/users/uid1/shin2/shin2-companies-staging') ? resp(200, { fields: { value: toFs(COMPANIES) } }) : (activities && (opt.headers || {}).Authorization === 'Bearer tok' && url.endsWith('/users/uid1/shin2/shin2-customer-activities-v1') ? resp(200, { fields: { value: toFs(activities) } }) : resp(403, {})); }
     if (url === 'https://bridgeone-m.github.io/card/index.html') return resp(200, '<script>window.SHIN2_PARTNER_SNAPSHOT = [];</script>');
     if (url.includes('b2b-task-tracker-39144')) { log.writes.push({ method, url, body: opt.payload }); return resp(trackerCode, '{}'); }
     log.other.push(url); return resp(404, '');
@@ -126,7 +126,9 @@ t('서버: 트래커 perfAuto 에만 쓰고 업체 정보는 보내지 않음', 
   const s = gasServer(); const r = s.ctx.kpiSyncRun();
   assert.ok(r.ok, r.error); assert.equal(s.log.writes.length, 1); assert.equal(s.log.writes[0].method, 'patch');
   const body = JSON.parse(s.log.writes[0].body);
-  assert.deepStrictEqual(Object.keys(body), ['perfAuto/LI01_2026-11']);
+  // 활동 기록을 못 읽으면 LI02·LI03 은 쓰지 않고(잘못 낮게 쓰지 않게) LI01·LI04 만 쓴다
+  assert.deepStrictEqual(Object.keys(body), ['perfAuto/LI01_2026-11', 'perfAuto/LI04_2026-11']);
+  assert.equal(body['perfAuto/LI04_2026-11'].ref, 'LI04'); assert.equal(body['perfAuto/LI04_2026-11'].mode, 'auto');
   const rec = body['perfAuto/LI01_2026-11'];
   assert.equal(rec.num, 5); assert.equal(rec.den, 5); assert.equal(rec.mode, 'auto'); assert.equal(rec.ref, 'LI01');
   const text = s.log.writes[0].body;
@@ -161,4 +163,13 @@ t('2026-11-16 후속관리 기준: 안내 메일·활동 기록은 후속조치,
   assert.equal(m.num, 1); assert.equal(m.den, 2); assert.equal(m.counts.contacted, 1);
 });
 
+t('서버: 활동 기록을 읽으면 신한솔 개인 KPI LI02·LI03 도 perfAuto 에 씀(카드 b2b-kpi-personal.js 같은 계산)', () => {
+  const s2 = gasServer({ activities: [{ id: 'x1', companyId: 'c1', activityText: '메모', createdAt: '2026-11-01T00:00:00Z' }] });
+  const r = s2.ctx.kpiSyncRun(); assert.ok(r.ok, r.error);
+  const body = JSON.parse(s2.log.writes[0].body);
+  assert.deepStrictEqual(Object.keys(body).sort(), ['perfAuto/LI01_2026-11', 'perfAuto/LI02_2026-11', 'perfAuto/LI03_2026-11', 'perfAuto/LI04_2026-11']);
+  ['LI02', 'LI03', 'LI04'].forEach(id => { const v = body['perfAuto/' + id + '_2026-11']; assert.equal(v.ref, id); assert.equal(v.source, '고객관리카드'); assert.ok(typeof v.num === 'number' && typeof v.den === 'number'); assert.ok(v.rule); });
+  const text = s2.log.writes[0].body;
+  COMPANIES.forEach(c => { assert.ok(!text.includes(c.name), '업체명 전송'); });
+});
 console.log(results.join('\n') + `\n\n${pass} / ${results.length} 성공`);

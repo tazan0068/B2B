@@ -19,7 +19,9 @@ const kpi = fs.readFileSync(path.join(__dirname, 'meeting-kpi.cjs'), 'utf8');
 const kpiBlock = kpi.slice(kpi.indexOf('/* KPI-SYNC-START */'), kpi.indexOf('/* KPI-SYNC-END */') + '/* KPI-SYNC-END */'.length);
 let gs = fs.readFileSync(path.join(__dirname, 'server.template.gs'), 'utf8');
 gs = gs.replace('__FIREBASE_API_KEY__', apiKey).replace('__CARD_ACCOUNT__', account).replace('__CARD_BUILD__', build)
-  .replace('// __CARD_LOGIC__', () => cardLogicSource(card)).replace('// __KPI_LOGIC__', () => kpiBlock);
+  .replace('// __CARD_LOGIC__', () => cardLogicSource(card)).replace('// __KPI_LOGIC__', () => kpiBlock)
+  // 신한솔 개인 KPI 계산(카드 b2b-kpi-personal.js 그대로) — KpiSync 안에서만 보이게 지역 module 로 받는다
+  .replace('// __PERSONAL_LOGIC__', () => ['var module = { exports: {} };', fs.readFileSync(path.join(cardDir, 'b2b-kpi-personal.js'), 'utf8'), 'var Personal = module.exports;'].join(String.fromCharCode(10)));
 if (/__[A-Z_]+__/.test(gs)) throw new Error('채우지 못한 자리표시자가 있음');
 const out = path.join(__dirname, 'dist');
 fs.mkdirSync(out, { recursive: true });

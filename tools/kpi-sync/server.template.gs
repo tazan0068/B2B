@@ -38,6 +38,13 @@ function installTriggers_() {
 }
 // __CARD_LOGIC__
 // __KPI_LOGIC__
+// __PERSONAL_LOGIC__
+// 신한솔 개인 KPI 자동 실측 기준(업무트래커 leadDefs 2026-11-16 저장 정의와 같음)
+var PERSONAL_RULE = {
+  LI02: '질문서 발송 후 7일 안 미회신 업체 중 14일 안 재안내(재발송 메일·연락 활동) 비율 · 7일 기한이 지난 달 기준',
+  LI03: '2026-08-26 이후 카드 등록 업체(시험 제외) 중 3일 안 첫 조치(메일·단계 등록·직접 활동) 비율 · 등록 월 기준',
+  LI04: 'MOU 체결사 중 대표자·연락처·이메일·주소·사업자번호 모두 갖춘 비율 · 계산 시점 상태'
+};
 function ruleText_() { return '카드 미팅 판정 · 유예 ' + CardLogic.rule.grace + '일 · 결과 기록 ' + CardLogic.rule.result + '일 · 등록 기한 ' + CardLogic.rule.reg + '일 · 조율 기한 ' + CardLogic.rule.coord + '일 · 안내 메일·일정 조율도 후속조치 · 보류·미진행 남은 단계 제외 (카드 ' + CARD_BUILD + ')'; }
 
 // 계산하고(write 이면) 트래커에 쓴다. 실패해도 예외를 밖으로 던지지 않고 상태만 남긴다.
@@ -56,11 +63,27 @@ function syncOnce_(write) {
       var r = MeetingKpi.monthly(items, m, now);
       patch['perfAuto/LI01_' + m] = { id: 'LI01_' + m, ref: 'LI01', month: m, mode: 'auto', num: r.num, den: r.den, counts: r.counts, source: '고객관리카드', rule: rule, computedAt: at };
     });
+    // 신한솔 개인 KPI LI02·LI03·LI04 — 카드 b2b-kpi-personal.js 와 같은 계산. 활동 기록을 못 읽으면 LI02·LI03 은 쓰지 않는다(잘못 낮게 쓰지 않게).
+    var live = (companies || []).filter(function (c) { return c && !c.deletedAt; });
+    var stageOf = function (co, key) { try { var s = buildProgressStages(co).stages.filter(function (x) { return x.key === key; })[0]; return s || null; } catch (e) { return null; } };
+    var pctx = { now: now, bulkEnd: MEETING_CARD_BULK_END,
+      replyTs: function (co) { var s = stageOf(co, 'q'); return s && s.state === 'done' && typeof s.ts === 'number' ? s.ts : null; },
+      mouDone: function (co) { var s = stageOf(co, 'mou'); return !!(s && s.state === 'done'); } };
+    if (acts) {
+      var actsOf = function (id) { return acts[String(id)] || []; };
+      var re = Personal.reContact(live, actsOf, pctx), fa = Personal.firstAction(live, actsOf, pctx);
+      MeetingKpi.targetMonths(now).forEach(function (m) {
+        [['LI02', re], ['LI03', fa]].forEach(function (x) { var v = x[1].months[m] || { num: 0, den: 0 };
+          patch['perfAuto/' + x[0] + '_' + m] = { id: x[0] + '_' + m, ref: x[0], month: m, mode: 'auto', num: v.num, den: v.den, source: '고객관리카드', rule: PERSONAL_RULE[x[0]], computedAt: at }; });
+      });
+    }
+    var cm = MeetingKpi.monthOf(now), ic = Personal.infoComplete(live, pctx);
+    patch['perfAuto/LI04_' + cm] = { id: 'LI04_' + cm, ref: 'LI04', month: cm, mode: 'auto', num: ic.num, den: ic.den, source: '고객관리카드', rule: PERSONAL_RULE.LI04, computedAt: at };
     if (write) {
       var res = UrlFetchApp.fetch(TRACKER_URL, { method: 'patch', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(patch) });
       if (res.getResponseCode() !== 200) throw new Error('WRITE: 트래커 저장 실패 HTTP ' + res.getResponseCode());
     }
-    return status_({ ok: true, wrote: !!write, at: at, months: Object.keys(patch).map(function (k) { var v = patch[k]; return v.month + ' ' + v.num + '/' + v.den; }), patch: patch });
+    return status_({ ok: true, wrote: !!write, at: at, months: Object.keys(patch).map(function (k) { var v = patch[k]; return v.ref + ' ' + v.month + ' ' + v.num + '/' + v.den; }), patch: patch });
   } catch (err) {
     console.error(err && err.stack || err);
     return status_({ ok: false, error: String(err && err.message || err).slice(0, 200) });
@@ -111,7 +134,7 @@ function readActivitiesByCompany_() {
     var value = fields.value ? fsValue_(fields.value) : null;
     if (!Array.isArray(value)) return null;
     var by = {};
-    value.forEach(function (a) { if (!a || !a.companyId) return; var k = String(a.companyId); (by[k] = by[k] || []).push({ activityText: a.activityText || a.originalText || '', createdAt: a.createdAt }); });
+    value.forEach(function (a) { if (!a || !a.companyId) return; var k = String(a.companyId); (by[k] = by[k] || []).push({ activityText: a.activityText || a.originalText || '', createdAt: a.createdAt, source: a.source || '' }); });
     return by;
   } catch (err) { return null; }
 }
